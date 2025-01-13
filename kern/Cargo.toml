@@ -1,0 +1,18 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.dev]
+debug = true
+opt-level = 0
+
+[profile.release]
+debug = true
+opt-level = 3
+
+[lib]
+test = false
+bench = false

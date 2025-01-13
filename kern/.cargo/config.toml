@@ -1,0 +1,13 @@
+[alias]
+debug = ["run", "--", "-gdb", "tcp::1234", "-S"]
+
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+	"-Clink-arg=-Tlink.ld",
+	"-Clink-arg=--eh-frame-hdr",
+	"-g"
+]
+runner = "just _krun"
