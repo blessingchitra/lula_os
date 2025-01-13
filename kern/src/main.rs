@@ -19,7 +19,7 @@ static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
 use plic::plic_init;
 use riscv::*;
-use uart::{uart_init, uart_puts};
+use uart::{uart_init, uart_puts, UART0_IRQ};
 
 #[export_name = "start"]
 pub extern "C" fn start()
@@ -49,9 +49,6 @@ pub extern "C" fn start()
     w_pmpaddr0(0x3fffffffffffff);
     w_pmpcfg0(0xf);
 
-    const UART_IRQ: u32 = 10;
-    const UART_PRIORITY: u32 = 1;
-
     plic_init(0);
 
     unsafe { core::arch::asm!("mret") };
@@ -59,9 +56,40 @@ pub extern "C" fn start()
 
 
 #[export_name = "ktrap"]
-pub extern "C" fn ktrap()    // supervisor mode has access to all memory
+pub extern "C" fn ktrap()    
 {
-    uart_puts("ktrap interrupt handler running");
+    let cause    = r_scause();
+    let is_intr = cause >> 63 != 0;
+    let code     = cause & 0xffff;
+
+    uart_puts("\n");
+    if is_intr {
+        uart_puts("An Interrupt Occured\n");
+        match code {
+            1 => uart_puts("--Software Intr\n"),
+            5 => uart_puts("--Timer Intr\n"),
+            9 => {
+                uart_puts("--External Intr\n");
+                let intr_id   = plic_sclaim_r!(0);
+                let uart_intr = UART0_IRQ as u32;
+                match intr_id {
+                    uart_intr => uart_puts("----UART0 INTR\n"),
+                    _         => uart_puts("----unknown dev intr\n"),
+                }
+                plic_sclaim_w!(0, intr_id);
+            },
+            _ => uart_puts("--Unkwown Intr\n"),
+        }
+    }else {
+        uart_puts("An Exception Occured\n");
+        match code {
+            0 => uart_puts("Instruction address misaligned"),
+            1 => uart_puts("Instruction access fault"),
+            2 => uart_puts("Illegal instruction"),
+            _ => uart_puts("Unknown/unhandled exception"),
+        }
+    }
+    uart_puts("Trap handler exiting\n");
     loop {
         1;
     }

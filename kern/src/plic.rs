@@ -31,7 +31,7 @@ macro_rules! plic_spriority {
 
 #[macro_export]
 macro_rules! plic_sclaim_r {
-    () => {{
+    ($hart:expr) => {{
         unsafe {
             let sclaim_ptr = 
                 ($crate::plic::PLIC + 0x201004 + ($hart * 0x2000)) 
@@ -43,7 +43,7 @@ macro_rules! plic_sclaim_r {
 
 #[macro_export]
 macro_rules! plic_sclaim_w {
-    ($value:expr) => {{
+    ($hart:expr, $value:expr) => {{
         unsafe {
             let sclaim_ptr = 
                 ($crate::plic::PLIC + 0x201004 + ($hart * 0x2000)) 
