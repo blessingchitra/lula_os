@@ -19,7 +19,7 @@ static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
 use plic::plic_init;
 use riscv::*;
-use uart::{uart_init, uart_puts, UART0_IRQ};
+use uart::{uart_init, uart_isr, uart_puts, UART0_IRQ};
 
 #[export_name = "start"]
 pub extern "C" fn start()
@@ -73,8 +73,12 @@ pub extern "C" fn ktrap()
                 let intr_id   = plic_sclaim_r!(0);
                 let uart_intr = UART0_IRQ as u32;
                 match intr_id {
-                    uart_intr => uart_puts("----UART0 INTR\n"),
-                    _         => uart_puts("----unknown dev intr\n"),
+                    uart_intr => {
+                        uart_puts("----UART0 INTR  START\n");
+                        uart_isr();
+                        uart_puts("----UART0 INTR END\n");
+                    },
+                    _  => uart_puts("----unknown dev intr\n"),
                 }
                 plic_sclaim_w!(0, intr_id);
             },
@@ -94,6 +98,9 @@ pub extern "C" fn ktrap()
         1;
     }
 }
+
+
+
 
 #[export_name = "_kmain"]
 pub unsafe extern "C" fn _kmain() -> ! {

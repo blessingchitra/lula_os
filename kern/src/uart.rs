@@ -84,7 +84,28 @@ pub fn uart_puts(s: &str) {
     }
 }
 
+pub fn uart_getc() -> Option<u8>
+{
+    let can_read =  (uartrd!(LSR) & 0x01) != 0;
+    if can_read {
+        return Some(uartrd!(RHR));
+    }
+    None
+}
 
+pub fn uart_isr()
+{
+    loop {
+        let char = uart_getc();
+        match char {
+            Some(char) => {
+                uart_putc(char);
+            },
+            None => break,
+        }
+    }
+    uart_putc(('\n' as u8));
+}
 
 
 
