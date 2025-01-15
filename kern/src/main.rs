@@ -20,6 +20,7 @@ static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 use plic::plic_init;
 use riscv::*;
 use uart::{uart_init, uart_isr, uart_puts, UART0_IRQ};
+use ktrap::_ktrap;
 
 #[export_name = "start"]
 pub extern "C" fn start()
@@ -32,7 +33,7 @@ pub extern "C" fn start()
     w_mepc((_kmain as *const ()) as u64);
 
     w_satp(0); // no paging yet
-    w_stvec((ktrap as * const()) as u64);
+    w_stvec((_ktrap as * const()) as u64);
 
     w_medeleg(0xffff);
     w_mideleg(0xffff);
@@ -53,53 +54,6 @@ pub extern "C" fn start()
 
     unsafe { core::arch::asm!("mret") };
 }
-
-
-#[export_name = "ktrap"]
-pub extern "C" fn ktrap()    
-{
-    let cause    = r_scause();
-    let is_intr = cause >> 63 != 0;
-    let code     = cause & 0xffff;
-
-    uart_puts("\n");
-    if is_intr {
-        uart_puts("An Interrupt Occured\n");
-        match code {
-            1 => uart_puts("--Software Intr\n"),
-            5 => uart_puts("--Timer Intr\n"),
-            9 => {
-                uart_puts("--External Intr\n");
-                let intr_id   = plic_sclaim_r!(0);
-                let uart_intr = UART0_IRQ as u32;
-                match intr_id {
-                    uart_intr => {
-                        uart_puts("----UART0 INTR  START\n");
-                        uart_isr();
-                        uart_puts("----UART0 INTR END\n");
-                    },
-                    _  => uart_puts("----unknown dev intr\n"),
-                }
-                plic_sclaim_w!(0, intr_id);
-            },
-            _ => uart_puts("--Unkwown Intr\n"),
-        }
-    }else {
-        uart_puts("An Exception Occured\n");
-        match code {
-            0 => uart_puts("Instruction address misaligned"),
-            1 => uart_puts("Instruction access fault"),
-            2 => uart_puts("Illegal instruction"),
-            _ => uart_puts("Unknown/unhandled exception"),
-        }
-    }
-    uart_puts("Trap handler exiting\n");
-    loop {
-        1;
-    }
-}
-
-
 
 
 #[export_name = "_kmain"]

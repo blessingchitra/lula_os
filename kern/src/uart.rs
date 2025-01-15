@@ -68,7 +68,7 @@ pub fn uart_init()
     uartwt!(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
 
     // enable transmit and receive interrupts
-    uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE);
+    uartwt!(IER, IER_RX_ENABLE);
 }
 
 pub fn uart_putc(c: u8) {
@@ -100,11 +100,11 @@ pub fn uart_isr()
         match char {
             Some(char) => {
                 uart_putc(char);
+                uart_putc(('\n' as u8));
             },
             None => break,
         }
     }
-    uart_putc(('\n' as u8));
 }
 
 
