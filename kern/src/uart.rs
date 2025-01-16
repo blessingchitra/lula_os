@@ -19,6 +19,54 @@ pub const LSR_TX_IDLE     :u8    = 1 << 5;              // THR can accept anothe
 pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
+static mut IOBUFF: UartBuff = UartBuff::new();
+
+struct UartBuff {
+    buffer: [u8; 20],
+    tx_ier: bool,
+    len:    usize,
+    rd:     usize,
+    wt:     usize,
+}
+
+
+impl UartBuff {
+    pub const fn new() -> Self {
+        Self { 
+            buffer: [0; 20], 
+            tx_ier: false,
+            len: 20,
+            rd:  0, 
+            wt:  0 
+        }
+    }
+
+    fn read (&mut self) -> Option<u8> {
+        if(self.rd < self.wt) {
+            let val = Some(self.buffer[self.rd]);
+            self.rd = ((self.rd + 1) % self.len);
+            return val; 
+        }
+        None
+    }
+
+    fn write(&mut self, value: u8) {
+        let nxt = (self.wt + 1) % self.len;
+        if((nxt != self.rd)){
+            self.buffer[self.wt] = value;
+            self.wt = nxt;
+        }
+        // here we've wrapped around and are about
+        // to run into data overrun issues
+    }
+
+    fn isempty(&self) -> bool {
+        self.rd == self.wt
+    }
+
+}
+
+
 #[macro_export]
 macro_rules! uartreg {
     ($reg:expr) => {
@@ -95,16 +143,42 @@ pub fn uart_getc() -> Option<u8>
 
 pub fn uart_isr()
 {
+    let data_avail   = unsafe  { !IOBUFF.isempty()};
+    let mut received = false;
     loop {
-        let char = uart_getc();
-        match char {
-            Some(char) => {
-                uart_putc(char);
-                uart_putc(('\n' as u8));
-            },
-            None => break,
+        let buff_full =  false;
+        if !buff_full {
+            let char = uart_getc();
+            match char {
+                Some(char) => {
+                    received = true;
+                    let mut chr = char;
+                    if char == ('\r' as u8) {
+                        chr = '\n' as u8;
+                    }
+                    uart_putc(chr);
+                },
+                None => break,
+            }
         }
     }
+
+    // let tx_ier_enabled = unsafe { IOBUFF.tx_ier };
+
+    // if received && !tx_ier_enabled { // data to be output
+    //     let uart_ier = uartrd!(IER);
+    //     uartwt!(IER, uart_ier | IER_TX_ENABLE);
+    //     unsafe { IOBUFF.tx_ier = true; };
+    // }
+
+
+
+
+
+    
+
+
+    
 }
 
 

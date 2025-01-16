@@ -60,28 +60,22 @@ pub unsafe extern "C" fn _ktrap()
 #[export_name = "ktrap_isr"]
 pub extern "C" fn ktrap_isr()
 {
-    let  sepc    = r_sepc();
-    let cause    = r_scause();
+    let sepc      = r_sepc();
+    let cause     = r_scause();
     let is_intr  = cause >> 63 != 0;
-    let code     = cause & 0xffff;
+    let code      = cause & 0xffff;
     let intr_id   = plic_sclaim_r!(0);
 
-    uart_puts("\n");
+    #[allow(unused_variables)]
     if is_intr {
-        uart_puts("An Interrupt Occured\n");
         match code {
             1 => uart_puts("--Software Intr\n"),
             5 => uart_puts("--Timer Intr\n"),
             9 => {
-                uart_puts("--External Intr\n");
                 let uart_intr = UART0_IRQ as u32;
                 match intr_id {
-                    uart_intr => {
-                        uart_puts("----UART0 INTR  START\n");
-                        uart_isr();
-                        uart_puts("----UART0 INTR END\n");
-                    },
-                    _  => uart_puts("----unknown dev intr\n"),
+                    uart_intr => uart_isr(),
+                    // _  => uart_puts("----unknown dev intr\n"),
                 }
             },
             _ => uart_puts("--Unkwown Intr\n"),
@@ -95,7 +89,6 @@ pub extern "C" fn ktrap_isr()
             _ => uart_puts("Unknown/unhandled exception"),
         }
     }
-    uart_puts("Trap handler exiting\n");
     plic_sclaim_w!(0, intr_id);
     w_sepc(sepc);
 }
