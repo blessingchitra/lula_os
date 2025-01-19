@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use core::iter::empty;
+
 pub const RHR             :usize = 0;                   // receive holding register (for input bytes)
 pub const THR             :usize = 0;                   // transmit holding register (for output bytes)
 pub const IER             :usize = 1;                   // interrupt enable register
@@ -19,7 +21,7 @@ pub const LSR_TX_IDLE     :u8    = 1 << 5;              // THR can accept anothe
 pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
-static mut IOBUFF: UartBuff = UartBuff::new();
+static mut uart_rx_buff: UartBuff = UartBuff::new();
 
 struct UartBuff {
     buffer: [u8; 20],
@@ -41,6 +43,7 @@ impl UartBuff {
         }
     }
 
+    // uart receive buff can have a read function 
     fn read (&mut self) -> Option<u8> {
         if(self.rd < self.wt) {
             let val = Some(self.buffer[self.rd]);
@@ -50,6 +53,7 @@ impl UartBuff {
         None
     }
 
+    // uart transmit buff can have a write function 
     fn write(&mut self, value: u8) {
         let nxt = (self.wt + 1) % self.len;
         if((nxt != self.rd)){
@@ -58,6 +62,30 @@ impl UartBuff {
         }
         // here we've wrapped around and are about
         // to run into data overrun issues
+    }
+
+    fn push(&mut self, c: u8) {
+        // TODO: double check off by one error
+        let buff_full = self.rd.abs_diff(self.wt) == (self.len - 1);
+        if !buff_full {
+            let nxt = (self.wt + 1) % self.len;
+            self.buffer[self.wt] = c;
+            self.wt = nxt;
+        }
+    }
+
+    fn get(&mut self) -> Option<u8> {
+        if !self.isempty() {
+            let val = self.buffer.get(self.rd).copied();
+            return val;
+        }
+        None
+    }
+
+    fn pop(&mut self) {
+        if !self.isempty() {
+            self.rd = (self.rd + 1) % self.len;
+        }
     }
 
     fn isempty(&self) -> bool {
@@ -116,14 +144,26 @@ pub fn uart_init()
     uartwt!(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
 
     // enable transmit and receive interrupts
-    uartwt!(IER, IER_RX_ENABLE);
+    uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE);
 }
 
-pub fn uart_putc(c: u8) {
+pub fn uart_putc(c: u8) -> bool {
+    let can_write = (uartrd!(LSR) & LSR_TX_IDLE) != 0;
+    if can_write {
+        uartwt!(THR, c);
+        return true;
+    }
+    false
+}
+
+/// always returns true. returns bool just
+/// to keep the same interface as its non-blocking version
+pub fn uart_putc_block(c: u8) -> bool {
     while (uartrd!(LSR) & LSR_TX_IDLE) == 0 {
         core::hint::spin_loop();
     }
     uartwt!(THR, c);
+    true
 }
 
 pub fn uart_puts(s: &str) {
@@ -143,8 +183,9 @@ pub fn uart_getc() -> Option<u8>
 
 pub fn uart_isr()
 {
-    let data_avail   = unsafe  { !IOBUFF.isempty()};
     let mut received = false;
+
+    // we try to get the available data
     loop {
         let buff_full =  false;
         if !buff_full {
@@ -156,29 +197,20 @@ pub fn uart_isr()
                     if char == ('\r' as u8) {
                         chr = '\n' as u8;
                     }
-                    uart_putc(chr);
+                    unsafe { uart_rx_buff.push(chr); };
                 },
                 None => break,
             }
         }
+        let c = unsafe { uart_rx_buff.get() };
+        match c {
+            Some(val) => {
+                let wrote = uart_putc(val);
+                if wrote { unsafe {uart_rx_buff.pop();}; } else {break;}
+            },
+            None => {}
+        }
     }
-
-    // let tx_ier_enabled = unsafe { IOBUFF.tx_ier };
-
-    // if received && !tx_ier_enabled { // data to be output
-    //     let uart_ier = uartrd!(IER);
-    //     uartwt!(IER, uart_ier | IER_TX_ENABLE);
-    //     unsafe { IOBUFF.tx_ier = true; };
-    // }
-
-
-
-
-
-    
-
-
-    
 }
 
 
