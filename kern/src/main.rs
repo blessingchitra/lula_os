@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
+#![feature(naked_functions)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test::test_runner)]
 
-use kernel::*;
 
 const NCPU: u32         = 2;
 const CSTACKSIZE: usize = (NCPU * 1024) as usize; // cpu stack size
@@ -17,40 +17,41 @@ const TRAPFRAME:  u64 = (MAXVA - PGSIZE) as u64;
 #[no_mangle]
 static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
-use plic::plic_init;
-use riscv::*;
-use uart::{uart_init, uart_isr, uart_puts, UART0_IRQ};
-use ktrap::_ktrap;
+mod plic;
+mod uart;
+mod riscv;
+mod ktrap;
+mod console;
 
 #[export_name = "start"]
 pub extern "C" fn start()
 {
-    let mut x = r_mstatus();
-    x &= !MSTATUS_MPP_MASK  as u64;
-    x |= MSTATUS_MPP_S      as u64;
-    w_mstatus(x);
+    let mut x = riscv::r_mstatus();
+    x &= !riscv::MSTATUS_MPP_MASK  as u64;
+    x |= riscv::MSTATUS_MPP_S      as u64;
+    riscv::w_mstatus(x);
 
-    w_mepc((_kmain as *const ()) as u64);
+    riscv::w_mepc((_kmain as *const ()) as u64);
 
-    w_satp(0); // no paging yet
-    w_stvec((_ktrap as * const()) as u64);
+    riscv::w_satp(0); // no paging yet
+    riscv::w_stvec((ktrap::_ktrap as * const()) as u64);
 
-    w_medeleg(0xffff);
-    w_mideleg(0xffff);
+    riscv::w_medeleg(0xffff);
+    riscv::w_mideleg(0xffff);
 
-    let mut intr = r_sie(); 
-    intr |= SIE_SEIE as u64;
-    intr |= SIE_SSIE as u64;
-    intr |= SIE_STIE as u64; 
+    let mut intr = riscv::r_sie(); 
+    intr |= riscv::SIE_SEIE as u64;
+    intr |= riscv::SIE_SSIE as u64;
+    intr |= riscv::SIE_STIE as u64; 
 
-    w_sie(intr);
-    intr_on();
+    riscv::w_sie(intr);
+    riscv::intr_on();
     
     // supervisor mode has access to all memory
-    w_pmpaddr0(0x3fffffffffffff);
-    w_pmpcfg0(0xf);
+    riscv::w_pmpaddr0(0x3fffffffffffff);
+    riscv::w_pmpcfg0(0xf);
 
-    plic_init(0);
+    plic::plic_init(0);
 
     unsafe { core::arch::asm!("mret") };
 }
@@ -58,12 +59,17 @@ pub extern "C" fn start()
 
 #[export_name = "_kmain"]
 pub unsafe extern "C" fn _kmain() -> ! {
-    uart_init();
-    uart_puts("--------------------------\n");
-    uart_puts("--------------------------\n");
-    uart_puts("Hello friend,\n");
-    uart_puts("--------------------------\n");
-    uart_puts("--------------------------\n");
+    let os = r#"
+| |         | |        / __ \ / ____|
+| |    _   _| | __ _  | |  | | (___  
+| |   | | | | |/ _` | | |  | |\___ \ 
+| |___| |_| | | (_| | | |__| |____) |
+|______\__,_|_|\__,_|  \____/|_____/ 
+-------------------------------------
+    "#;
+    uart::uart_init();
+    uart::uart_puts(os); uart::uart_puts("\n");
+    // let mut cons = console::Console::new();
     loop {
         1;
     }

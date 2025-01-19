@@ -22,11 +22,12 @@ pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
 static mut uart_rx_buff: UartBuff = UartBuff::new();
+pub const UART_BUFF_SIZE: usize = 1024;
 
+#[derive(Debug)]
 struct UartBuff {
-    buffer: [u8; 20],
+    buffer: [u8; UART_BUFF_SIZE],
     tx_ier: bool,
-    len:    usize,
     rd:     usize,
     wt:     usize,
 }
@@ -35,9 +36,8 @@ struct UartBuff {
 impl UartBuff {
     pub const fn new() -> Self {
         Self { 
-            buffer: [0; 20], 
+            buffer: [0; UART_BUFF_SIZE], 
             tx_ier: false,
-            len: 20,
             rd:  0, 
             wt:  0 
         }
@@ -47,7 +47,7 @@ impl UartBuff {
     fn read (&mut self) -> Option<u8> {
         if(self.rd < self.wt) {
             let val = Some(self.buffer[self.rd]);
-            self.rd = ((self.rd + 1) % self.len);
+            self.rd = ((self.rd + 1) % UART_BUFF_SIZE);
             return val; 
         }
         None
@@ -55,7 +55,7 @@ impl UartBuff {
 
     // uart transmit buff can have a write function 
     fn write(&mut self, value: u8) {
-        let nxt = (self.wt + 1) % self.len;
+        let nxt = (self.wt + 1) % UART_BUFF_SIZE;
         if((nxt != self.rd)){
             self.buffer[self.wt] = value;
             self.wt = nxt;
@@ -66,9 +66,9 @@ impl UartBuff {
 
     fn push(&mut self, c: u8) {
         // TODO: double check off by one error
-        let buff_full = self.rd.abs_diff(self.wt) == (self.len - 1);
+        let buff_full = self.rd.abs_diff(self.wt) == (UART_BUFF_SIZE - 1);
         if !buff_full {
-            let nxt = (self.wt + 1) % self.len;
+            let nxt = (self.wt + 1) % UART_BUFF_SIZE;
             self.buffer[self.wt] = c;
             self.wt = nxt;
         }
@@ -84,7 +84,7 @@ impl UartBuff {
 
     fn pop(&mut self) {
         if !self.isempty() {
-            self.rd = (self.rd + 1) % self.len;
+            self.rd = (self.rd + 1) % UART_BUFF_SIZE;
         }
     }
 
@@ -144,7 +144,7 @@ pub fn uart_init()
     uartwt!(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
 
     // enable transmit and receive interrupts
-    uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE);
+    uartwt!(IER, IER_RX_ENABLE);
 }
 
 pub fn uart_putc(c: u8) -> bool {
@@ -168,7 +168,7 @@ pub fn uart_putc_block(c: u8) -> bool {
 
 pub fn uart_puts(s: &str) {
     for c in s.bytes() {
-        uart_putc(c);
+        uart_putc_block(c);
     }
 }
 
@@ -183,33 +183,33 @@ pub fn uart_getc() -> Option<u8>
 
 pub fn uart_isr()
 {
-    let mut received = false;
-
-    // we try to get the available data
     loop {
-        let buff_full =  false;
-        if !buff_full {
-            let char = uart_getc();
-            match char {
-                Some(char) => {
-                    received = true;
-                    let mut chr = char;
-                    if char == ('\r' as u8) {
-                        chr = '\n' as u8;
-                    }
-                    unsafe { uart_rx_buff.push(chr); };
-                },
-                None => break,
-            }
+        let char = uart_getc();
+        match char {
+            Some(char) => {
+                let char = if char == ('\r' as u8) { '\n' as u8 } else { char };
+                unsafe { uart_rx_buff.push(char); };
+            },
+            None => break
         }
+    }
+
+    loop {
         let c = unsafe { uart_rx_buff.get() };
         match c {
             Some(val) => {
-                let wrote = uart_putc(val);
-                if wrote { unsafe {uart_rx_buff.pop();}; } else {break;}
+                let processed = uart_putc(val);
+                if processed { unsafe {uart_rx_buff.pop();} } else { break }
             },
-            None => {}
+            None => break
         }
+    }
+
+    let buff_empty = unsafe {uart_rx_buff.isempty()};
+    if buff_empty {
+        uartwt!(IER, IER_RX_ENABLE)
+    }else{
+        uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE)
     }
 }
 

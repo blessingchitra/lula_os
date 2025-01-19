@@ -75,7 +75,6 @@ pub extern "C" fn ktrap_isr()
                 let uart_intr = UART0_IRQ as u32;
                 match intr_id {
                     uart_intr => uart_isr(),
-                    // _  => uart_puts("----unknown dev intr\n"),
                 }
             },
             _ => uart_puts("--Unkwown Intr\n"),
