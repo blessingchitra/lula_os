@@ -4,6 +4,7 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test::test_runner)]
 
+use kernel::*;
 
 const NCPU: u32         = 2;
 const CSTACKSIZE: usize = (NCPU * 1024) as usize; // cpu stack size
@@ -17,11 +18,7 @@ const TRAPFRAME:  u64 = (MAXVA - PGSIZE) as u64;
 #[no_mangle]
 static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
-mod plic;
-mod uart;
-mod riscv;
-mod ktrap;
-mod console;
+
 
 #[export_name = "start"]
 pub extern "C" fn start()
@@ -67,9 +64,11 @@ pub unsafe extern "C" fn _kmain() -> ! {
 |______\__,_|_|\__,_|  \____/|_____/ 
 -------------------------------------
     "#;
+
     uart::uart_init();
     uart::uart_puts(os); uart::uart_puts("\n");
-    // let mut cons = console::Console::new();
+    println!("printted from the macro");
+
     loop {
         1;
     }
