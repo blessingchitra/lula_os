@@ -7,6 +7,7 @@ pub struct KConsole;
 
 pub struct UConsole {
     buffer: [u8; CONS_BUFF_SIZE]
+    
 }
 
 
