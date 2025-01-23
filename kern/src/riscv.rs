@@ -461,20 +461,19 @@ pub fn r_time() -> u64
     x
 }
 
-/// Enable device interrupts
+/// Toggle device interrupts
 #[inline]
-pub fn intr_on()
-{
-    let status: u64 = r_sstatus() | (SSTATUS_SIE as u64);
-    w_sstatus(status);
+pub fn intr_on() {
+    unsafe {
+        core::arch::asm!("csrsi sstatus, 1 << 1"); 
+    }
 }
 
-/// Disable device interrupts
 #[inline]
-pub fn intr_off()
-{
-    let status = r_mstatus() & !(SSTATUS_SIE as u64);
-    w_mstatus(status);
+pub fn intr_off() {
+    unsafe {
+        core::arch::asm!("csrci sstatus, 1 << 1"); 
+    }
 }
 
 /// Check if device interrupts are enabled

@@ -67,7 +67,8 @@ pub unsafe extern "C" fn _kmain() -> ! {
 
     uart::uart_init();
     uart::uart_puts(os); uart::uart_puts("\n");
-    println!("printted from the macro");
+    // kprintln!("{os}");
+    // kprintln!("Welcome,");
 
     loop {
         1;

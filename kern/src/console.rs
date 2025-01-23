@@ -21,11 +21,21 @@ impl Write for KConsole {
     }
 }
 
+
 #[macro_export]
-macro_rules! println {
-    ($($val:tt)*) => {{
+macro_rules! kprint{
+    ($($arg:tt)*) => {{
         use core::fmt::Write;
         let mut cons = crate::console::KConsole;
-        let _ = write!(&mut cons, $($val)*);
+        let _ = write!(&mut cons, $($arg)*);
+    }};
+}
+
+#[macro_export]
+macro_rules! kprintln {
+    () => { kprint!("\n"); };
+    ($($arg:tt)*) => {{
+        kprint!($($arg)*);
+        kprint!("\n");
     }};
 }

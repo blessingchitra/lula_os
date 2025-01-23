@@ -2,6 +2,9 @@
 
 use core::iter::empty;
 
+#[macro_use]
+use crate::{kprintln, kprint};
+
 pub const RHR             :usize = 0;                   // receive holding register (for input bytes)
 pub const THR             :usize = 0;                   // transmit holding register (for output bytes)
 pub const IER             :usize = 1;                   // interrupt enable register
@@ -68,8 +71,8 @@ impl UartBuff {
         // TODO: double check off by one error
         let buff_full = self.rd.abs_diff(self.wt) == (UART_BUFF_SIZE - 1);
         if !buff_full {
-            let nxt = (self.wt + 1) % UART_BUFF_SIZE;
             self.buffer[self.wt] = c;
+            let nxt = (self.wt + 1) % UART_BUFF_SIZE;
             self.wt = nxt;
         }
     }
@@ -84,6 +87,9 @@ impl UartBuff {
 
     fn pop(&mut self) {
         if !self.isempty() {
+            let char = self.buffer.get(self.rd).copied().unwrap();
+            // uart_putc_block(char);
+            // uart_putc_block(char);
             self.rd = (self.rd + 1) % UART_BUFF_SIZE;
         }
     }
@@ -181,7 +187,8 @@ pub fn uart_getc() -> Option<u8>
     None
 }
 
-pub fn uart_isr()
+#[export_name = "uart_isr"]
+pub extern "C" fn uart_isr()
 {
     loop {
         let char = uart_getc();
@@ -198,7 +205,7 @@ pub fn uart_isr()
         let c = unsafe { uart_rx_buff.get() };
         match c {
             Some(val) => {
-                let processed = uart_putc(val);
+                let processed = uart_putc_block(val);
                 if processed { unsafe {uart_rx_buff.pop();} } else { break }
             },
             None => break
@@ -211,6 +218,7 @@ pub fn uart_isr()
     }else{
         uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE)
     }
+    let (wt, rd) = unsafe {(uart_rx_buff.wt, uart_rx_buff.rd)};
 }
 
 
