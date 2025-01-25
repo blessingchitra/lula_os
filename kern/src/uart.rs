@@ -2,6 +2,7 @@
 
 use core::iter::empty;
 
+use crate::sync::SpinLock;
 #[macro_use]
 use crate::{kprintln, kprint};
 
@@ -24,7 +25,7 @@ pub const LSR_TX_IDLE     :u8    = 1 << 5;              // THR can accept anothe
 pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
-static mut uart_rx_buff: UartBuff = UartBuff::new();
+static uart_rx_buff: SpinLock<UartBuff> = SpinLock::new(UartBuff::new());
 pub const UART_BUFF_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -88,8 +89,6 @@ impl UartBuff {
     fn pop(&mut self) {
         if !self.isempty() {
             let char = self.buffer.get(self.rd).copied().unwrap();
-            // uart_putc_block(char);
-            // uart_putc_block(char);
             self.rd = (self.rd + 1) % UART_BUFF_SIZE;
         }
     }
@@ -190,35 +189,39 @@ pub fn uart_getc() -> Option<u8>
 #[export_name = "uart_isr"]
 pub extern "C" fn uart_isr()
 {
+    let mut spinl_guard = uart_rx_buff.lock();
     loop {
+        let buff = spinl_guard.get_mut();
         let char = uart_getc();
         match char {
             Some(char) => {
                 let char = if char == ('\r' as u8) { '\n' as u8 } else { char };
-                unsafe { uart_rx_buff.push(char); };
+                unsafe { buff.push(char); };
             },
             None => break
         }
     }
 
     loop {
-        let c = unsafe { uart_rx_buff.get() };
+        let buff = spinl_guard.get_mut();
+        let c = unsafe { buff.get() };
         match c {
             Some(val) => {
                 let processed = uart_putc_block(val);
-                if processed { unsafe {uart_rx_buff.pop();} } else { break }
+                if processed { unsafe {buff.pop();} } else { break }
             },
             None => break
         }
     }
 
-    let buff_empty = unsafe {uart_rx_buff.isempty()};
+    let buff = spinl_guard.get();
+    let buff_empty = unsafe {buff.isempty()};
     if buff_empty {
         uartwt!(IER, IER_RX_ENABLE)
     }else{
         uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE)
     }
-    let (wt, rd) = unsafe {(uart_rx_buff.wt, uart_rx_buff.rd)};
+    let (wt, rd) = unsafe {(buff.wt, buff.rd)};
 }
 
 
