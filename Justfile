@@ -20,8 +20,8 @@ run:
 	qemu-system-riscv64 \
 	-machine virt -bios none \
 	-kernel {{kernel_path}} -m 128M -smp 1 -nographic \
-	-d int,guest_errors -D qemu.log \
-	-S -s
+	-d int,guest_errors -D qemu.log 
+#	-S -s
 
 
 _krun kernel *EXTRA_ARGS:

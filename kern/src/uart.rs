@@ -25,13 +25,12 @@ pub const LSR_TX_IDLE     :u8    = 1 << 5;              // THR can accept anothe
 pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
-static uart_rx_buff: SpinLock<UartBuff> = SpinLock::new(UartBuff::new());
+static UART_RX_BUFF: SpinLock<UartBuff> = SpinLock::new(UartBuff::new());
 pub const UART_BUFF_SIZE: usize = 1024;
 
 #[derive(Debug)]
 struct UartBuff {
     buffer: [u8; UART_BUFF_SIZE],
-    tx_ier: bool,
     rd:     usize,
     wt:     usize,
 }
@@ -41,7 +40,6 @@ impl UartBuff {
     pub const fn new() -> Self {
         Self { 
             buffer: [0; UART_BUFF_SIZE], 
-            tx_ier: false,
             rd:  0, 
             wt:  0 
         }
@@ -49,7 +47,7 @@ impl UartBuff {
 
     // uart receive buff can have a read function 
     fn read (&mut self) -> Option<u8> {
-        if(self.rd < self.wt) {
+        if(self.rd != self.wt) {
             let val = Some(self.buffer[self.rd]);
             self.rd = ((self.rd + 1) % UART_BUFF_SIZE);
             return val; 
@@ -103,7 +101,7 @@ impl UartBuff {
 #[macro_export]
 macro_rules! uartreg {
     ($reg:expr) => {
-        unsafe { &mut *($crate::uart::UART0 as *mut u8 ).add($reg) }
+        unsafe { &mut *(($crate::uart::UART0 + $reg)  as *mut u8 ) }
     };
     // used for testing
     ($reg:expr, $mock_mem:expr) => {
@@ -189,39 +187,42 @@ pub fn uart_getc() -> Option<u8>
 #[export_name = "uart_isr"]
 pub extern "C" fn uart_isr()
 {
-    let mut spinl_guard = uart_rx_buff.lock();
-    loop {
-        let buff = spinl_guard.get_mut();
-        let char = uart_getc();
-        match char {
-            Some(char) => {
-                let char = if char == ('\r' as u8) { '\n' as u8 } else { char };
-                unsafe { buff.push(char); };
-            },
-            None => break
+    let mut buff_empty = true;
+    {
+        let mut spinl_guard = UART_RX_BUFF.lock();
+        loop {
+            let buff = spinl_guard.get_mut();
+            let char = uart_getc();
+            match char {
+                Some(char) => {
+                    let char = if char == ('\r' as u8) { '\n' as u8 } else { char };
+                    buff.push(char);
+                },
+                None => break
+            }
         }
+
+        loop {
+            let buff = spinl_guard.get_mut();
+            let c =  buff.get();
+            match c {
+                Some(val) => {
+                    let processed = uart_putc_block(val);
+                    if processed { buff.pop(); } else { break }
+                },
+                None => break
+            }
+        }
+
+        let buff = spinl_guard.get();
+        buff_empty = buff.isempty();
     }
 
-    loop {
-        let buff = spinl_guard.get_mut();
-        let c = unsafe { buff.get() };
-        match c {
-            Some(val) => {
-                let processed = uart_putc_block(val);
-                if processed { unsafe {buff.pop();} } else { break }
-            },
-            None => break
-        }
-    }
-
-    let buff = spinl_guard.get();
-    let buff_empty = unsafe {buff.isempty()};
     if buff_empty {
         uartwt!(IER, IER_RX_ENABLE)
     }else{
         uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE)
     }
-    let (wt, rd) = unsafe {(buff.wt, buff.rd)};
 }
 
 

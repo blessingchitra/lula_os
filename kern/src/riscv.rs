@@ -480,7 +480,7 @@ pub fn intr_off() {
 #[inline]
 pub fn intr_get() -> bool
 {
-    let status = r_mstatus();
+    let status = r_sstatus();
     let status =  (status & (SSTATUS_SIE as u64)) != 0;
     status
 }
