@@ -19,7 +19,7 @@ raw_run *EXTRA_ARGS:
 run:
 	qemu-system-riscv64 \
 	-machine virt -bios none \
-	-kernel {{kernel_path}} -m 128M -smp 1 -nographic \
+	-kernel {{kernel_path}} -m 128M -smp 2 -nographic \
 	-d int,guest_errors -D qemu.log 
 #	-S -s
 

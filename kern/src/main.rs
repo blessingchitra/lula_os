@@ -7,7 +7,7 @@
 use kernel::*;
 
 const NCPU: u32         = 2;
-const CSTACKSIZE: usize = (NCPU * 1024) as usize; // cpu stack size
+const CSTACKSIZE: usize = (NCPU * (1024 * 4)) as usize; // cpu stack size
 const PGSIZE:     usize = 4096;
 const PAGESHIFT:  usize = 12;
 const MAXVA:      usize = 1 << (9 + 9 + 9 + 12 - 1);
@@ -18,7 +18,8 @@ const TRAPFRAME:  u64 = (MAXVA - PGSIZE) as u64;
 #[no_mangle]
 static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
-
+#[allow(non_upper_case_globals)]
+static mut sys_initialised: bool = false;
 
 #[export_name = "start"]
 pub extern "C" fn start()
@@ -48,7 +49,15 @@ pub extern "C" fn start()
     riscv::w_pmpaddr0(0x3fffffffffffff);
     riscv::w_pmpcfg0(0xf);
 
-    plic::plic_init(0);
+    let cpu_id = riscv::r_mhartid();
+    riscv::w_tp(cpu_id);
+
+    if cpu_id == 0 { 
+        plic::plic_init(0); 
+        unsafe {sys_initialised = true};
+    }
+
+    while (cpu_id != 0) && !unsafe { sys_initialised } { }
 
     unsafe { core::arch::asm!("mret") };
 }
@@ -56,6 +65,8 @@ pub extern "C" fn start()
 
 #[export_name = "_kmain"]
 pub unsafe extern "C" fn _kmain() -> ! {
+    let first = riscv::r_tp() == 0;
+    if first {
     let os = r#"
 | |         | |        / __ \ / ____|
 | |    _   _| | __ _  | |  | | (___  
@@ -67,8 +78,9 @@ pub unsafe extern "C" fn _kmain() -> ! {
 
     uart::uart_init();
     uart::uart_puts(os); uart::uart_puts("\n");
-    // kprintln!("{os}");
-    // kprintln!("Welcome,");
+
+    }
+
 
     loop {
         1;
