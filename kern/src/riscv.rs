@@ -1,3 +1,4 @@
+
 // Machine Status Register, mstatus
 pub const MSTATUS_MPP_MASK  : usize = 3 << 11;          // previous mode.
 pub const MSTATUS_MPP_M     : usize = 3 << 11;
@@ -30,164 +31,205 @@ macro_rules! make_satp{
     };
 }
 
-/// Return the Id of the CPU execting the code. 
-/// * `u64` - The CPU Id
-pub fn r_mhartid() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, mhartid",
-            out(reg) x
-        )
-    };
-    x
+pub trait Register {
+    fn read() -> usize;
+    fn write(_x: usize){}
 }
+
+pub struct RegMHartId;
+impl Register for RegMHartId {
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, mhartid",
+                out(reg) x
+            )
+        };
+        x
+    }
+}
+
 
 // -- machine
+pub struct RegMStatus;
+impl Register for RegMStatus{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, mstatus",
+                out(reg) x,
+            )
+        };
+        x
+    }
 
-#[inline]
-pub fn r_mstatus() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, mstatus",
-            out(reg) x,
-        )
-    };
-    x
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw mstatus, {}",
+                in(reg) x
+            )
+        };
+    }
+
 }
 
-#[inline]
-pub fn w_mstatus(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw mstatus, {}",
-            in(reg) x
-        )
-    };
-}
 
-/// machine exception program counter
+/// machine exception program counter.
 /// the pc is set to the value in this register
 /// when returning from an exception
-#[inline]
-pub fn w_mepc(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw mepc, {}",
-            in(reg) x
-        )
+pub struct RegMEPC;
+impl Register for RegMEPC{
+    fn read() -> usize {0usize}
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw mepc, {}",
+                in(reg) x
+            )
+        }
     }
 }
 
 // -- supervisor
 
-#[inline]
-pub fn r_sstatus() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, sstatus",
-            out(reg) x,
-        )
-    };
-    x
+pub struct RegSStatus;
+impl Register for RegSStatus {
+    #[inline]
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, sstatus",
+                out(reg) x
+            )
+        };
+        x
+    }
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw sstatus, {}",
+                in(reg) x
+            )
+        };
+    }
 }
 
-#[inline]
-pub fn w_sstatus(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw sstatus, {}",
-            in(reg) x
-        )
-    };
-}
+impl RegSStatus {
+    pub fn intr_on() {
+        unsafe {
+            core::arch::asm!("csrsi sstatus, 1 << 1"); 
+        }
+    }
+    pub fn intr_off() {
+        unsafe {
+            core::arch::asm!("csrci sstatus, 1 << 1"); 
+        }
+    }
+    pub fn intr_get() -> bool
+    {
+        let status = RegSStatus::read();
+        let status =  (status & SSTATUS_SIE) != 0;
+        status
+    }
 
-/// Supevisor Interrupt Pending
-#[inline]
-pub fn r_sip() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, sip",
-            out(reg) x,
-        )
-    };
-    x
-}
-
-#[inline]
-pub fn w_sip(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw sip, {}",
-            in(reg) x,
-        )
-    };
-}
-
-#[inline]
-pub fn r_sie() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, sie",
-            out(reg) x,
-        )
-    };
-    x
-}
-
-#[inline]
-pub fn w_sie(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw sie, {}",
-            in(reg) x,
-        )
-    };
 }
 
 
-#[inline]
-pub fn r_mie() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "csrr {}, mie",
-            out(reg) x,
-        )
-    };
-    x
+pub struct RegSIP;
+impl Register for RegSIP {
+    // Supevisor Interrupt Pending
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, sip",
+                out(reg) x,
+            )
+        };
+        x
+    }
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw sip, {}",
+                in(reg) x,
+            )
+        };
+    }
 }
 
-#[inline]
-pub fn w_mie(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-            "csrw mie, {}",
-            in(reg) x,
-        )
-    };
+
+pub struct RegSIE;
+impl Register for RegSIE{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, sie",
+                out(reg) x,
+            )
+        };
+        x
+    }
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw sie, {}",
+                in(reg) x,
+            )
+        };
+    }
 }
 
+pub struct RegMIE;
+impl Register for RegMIE{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, mie",
+                out(reg) x,
+            )
+        };
+        x
+    }
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "csrw mie, {}",
+                in(reg) x,
+            )
+        };
+    }
+}
 
 /// supervisor exception program counter
 /// the pc is set to the value in this register
 /// when returning from an exception
+pub struct RegSEPC;
+impl Register for RegSEPC{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrr {}, sepc",
+                out(reg) x,
+            )
+        };
+        x
+    }
+
+}
+
 #[inline]
 pub fn w_sepc(x: u64)
 {
@@ -461,95 +503,76 @@ pub fn r_time() -> u64
     x
 }
 
+
+pub struct RegSP;
+impl Register for RegSP{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "mv {}, sp",
+                out(reg) x
+            )
+        }
+        x
+    }
+}
+
+pub struct RegTP;
+impl Register for RegTP{
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "mv {}, tp",
+                out(reg) x
+            )
+        }
+        x
+    }
+
+    fn write(x: usize) {
+        unsafe {
+            core::arch::asm!(
+                "mv tp, {}",
+                in(reg) x
+            )
+        }
+    }
+}
+
+pub struct RegRA;
+impl Register for RegRA {
+    fn read() -> usize {
+        let x: usize;
+        unsafe {
+            core::arch::asm!(
+                "mv {}, ra",
+                out(reg) x
+
+            )
+        }
+        x
+    }
+}
+
+
 /// Toggle device interrupts
 #[inline]
 pub fn intr_on() {
-    unsafe {
-        core::arch::asm!("csrsi sstatus, 1 << 1"); 
-    }
+    RegSStatus::intr_on();
 }
 
 #[inline]
 pub fn intr_off() {
-    unsafe {
-        core::arch::asm!("csrci sstatus, 1 << 1"); 
-    }
+    RegSStatus::intr_off();
 }
 
-/// Check if device interrupts are enabled
 #[inline]
 pub fn intr_get() -> bool
 {
-    let status = r_sstatus();
-    let status =  (status & (SSTATUS_SIE as u64)) != 0;
-    status
+    RegSStatus::intr_get()
 }
-
-#[inline]
-pub fn r_sp() -> u64
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "mv {}, sp",
-            out(reg) x
-        )
-    }
-    x
-}
-
-#[inline]
-pub fn r_tp() -> u64 
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "mv {}, tp",
-            out(reg) x
-        )
-    }
-    x
-}
-
-#[inline]
-pub fn w_tp(x: u64)
-{
-    unsafe {
-        core::arch::asm!(
-              "mv tp, {}",
-              in(reg) x
-        )
-    }
-}
-
-#[inline]
-pub fn r_ra() -> u64 
-{
-    let x: u64;
-    unsafe {
-        core::arch::asm!(
-            "mv {}, ra",
-            out(reg) x
-        )
-    }
-    x
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
