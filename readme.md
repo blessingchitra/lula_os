@@ -5,7 +5,6 @@ A simple RISC-V kernel
 If you already have the Nix package manager installed on your system then you can skip this step. \
 The installation process might be [different](https://nixos.org/download/#nix-install-linux) for you distribution but on Ubuntu the following steps will suffice. 
 ```shell
-# Install SSL certificates if not present
 sudo apt-get update && sudo apt-get install -y curl xz-utils
 
 # Download and run the Nix installer script
@@ -16,7 +15,6 @@ curl -L https://nixos.org/nix/install | sh
 # or
 source ~/.nix-profile/etc/profile.d/nix.sh
 
-# Verify installation
 nix --version
 ```
 
