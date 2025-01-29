@@ -13,6 +13,8 @@ curl -L https://nixos.org/nix/install | sh
 
 # Source nix profile (for current session)
 . ~/.nix-profile/etc/profile.d/nix.sh
+# or
+source ~/.nix-profile/etc/profile.d/nix.sh
 
 # Verify installation
 nix --version
