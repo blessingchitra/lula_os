@@ -6,7 +6,7 @@ kernel_path := "./kern/target/riscv64gc-unknown-none-elf/debug/kernel"
 
 kernel:
 	cd kern && cargo build -Z build-std=core,alloc \
-	 --target riscv64gc-unknown-none-elf --verbose
+	 --target riscv64gc-unknown-none-elf 
 
 test-mem:
 	cd sim && cargo test --verbose
@@ -19,9 +19,16 @@ raw_run *EXTRA_ARGS:
 run:
 	qemu-system-riscv64 \
 	-machine virt -bios none \
-	-kernel {{kernel_path}} -m 128M -smp 2 -nographic \
-	-d int,guest_errors -D qemu.log 
-#	-S -s
+	-kernel {{kernel_path}} -m 128M -smp 1 -nographic \
+	-d int,guest_errors -D qemu.log
+
+
+run-gdb:
+	qemu-system-riscv64 \
+	-machine virt -bios none \
+	-kernel {{kernel_path}} -m 128M -smp 1 -nographic \
+	-d int,guest_errors -D qemu.log \
+	-S -s
 
 
 _krun kernel *EXTRA_ARGS:
@@ -29,5 +36,5 @@ _krun kernel *EXTRA_ARGS:
 
 # debug: (run "-gdb tcp::1234 -S")
 gdb:
-	gdb-multiarch {{kernel_path}} \
+	gdb {{kernel_path}} \
 		-ex 'target remote localhost:1234'
