@@ -1,10 +1,10 @@
 use crate::{plic_sclaim_r, plic_sclaim_w};
-use crate::riscv::{r_scause, r_sepc, w_sepc};
+use crate::riscv::{RegSCause, RegSEPC, Register}; 
 use crate::uart::{uart_isr, uart_puts, UART0_IRQ};
 
 #[naked]
-#[export_name = "_ktrap"]
-pub unsafe extern "C" fn _ktrap()
+#[export_name = "kern_trap"]
+pub unsafe extern "C" fn kern_trap()
 {
     unsafe {
         core::arch::naked_asm!(
@@ -60,10 +60,10 @@ pub unsafe extern "C" fn _ktrap()
 #[export_name = "ktrap_isr"]
 pub extern "C" fn ktrap_isr()
 {
-    let sepc      = r_sepc();
-    let cause     = r_scause();
+    let sepc    = RegSEPC::read();
+    let cause   = RegSCause::read();
     let is_intr  = cause >> 63 != 0;
-    let code      = cause & 0xffff;
+    let code    = cause & 0xffff;
     let intr_id   = plic_sclaim_r!(0);
 
     #[allow(unused_variables)]
@@ -89,5 +89,5 @@ pub extern "C" fn ktrap_isr()
         }
     }
     plic_sclaim_w!(0, intr_id);
-    w_sepc(sepc);
+    RegSEPC::write(sepc);
 }
