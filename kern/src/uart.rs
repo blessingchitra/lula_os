@@ -195,8 +195,17 @@ pub extern "C" fn uart_isr()
             let char = uart_getc();
             match char {
                 Some(char) => {
-                    let char = if char == ('\r' as u8) { '\n' as u8 } else { char };
-                    buff.push(char);
+                    let char = match char {
+                        b'\r' => b'\n',
+                        _ => char
+                    };
+                    if char == (8 | b'\x7f') {
+                        uart_putc_block(b'\x08');
+                        uart_putc_block(b' ');
+                        uart_putc_block(b'\x08');
+                    }else{
+                        buff.push(char);
+                    }
                 },
                 None => break
             }
