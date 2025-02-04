@@ -2,7 +2,18 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 const PAGE_SIZE:  usize = 4096;
 const BITMAP_LEN: usize = 64;
-const PG_OFFSET:  usize = 12;
+const PAGE_OFFSET:  usize = 12;
+
+const KERN_START:  usize = 0x80000000;
+const KERN_RESERV: usize = 128 * (1024 * 1024);
+const MEM_MAX:     usize = 1usize << (9 + 9 + 9 + 12 - 1);
+
+static mut KERN_SATP: usize = 0;
+static mut KERN_PG_ALLOCATOR: Option<KPageAllocator> = None;
+
+extern "C" {
+    static end: *const u8;
+}
 
 pub struct KPageAllocator {
     pmap:        &'static mut [AtomicU64],
@@ -85,10 +96,114 @@ fn test(){
     let mut memory = [0u64; LEN];
 
     let mut allocator = KPageAllocator::new(memory.as_mut_ptr() as usize, LEN);
-    
     let allocated_arr = allocator.allocate().unwrap();
     assert!(allocator.page_allocated(allocated_arr));
 
     allocator.deallocate(allocated_arr);
     assert!(!allocator.page_allocated(allocated_arr))
 }
+
+// https://github.com/qemu/qemu/blob/master/hw/riscv/virt.c
+pub struct VirtMemMap;
+impl VirtMemMap {
+    pub const VIRT_DEBUG        : usize = 0x0;
+    pub const VIRT_MROM         : usize = 0x1000;
+    pub const VIRT_TEST         : usize = 0x100000;
+    pub const VIRT_RTC          : usize = 0x101000;
+    pub const VIRT_CLINT        : usize = 0x2000000;
+    pub const VIRT_ACLINT_SSWI  : usize = 0x2F00000;
+    pub const VIRT_PCIE_PIO     : usize = 0x3000000;
+    pub const VIRT_IOMMU_SYS    : usize = 0x3010000;
+    pub const VIRT_PLATFORM_BUS : usize = 0x4000000;
+    pub const VIRT_PLIC         : usize = 0xc000000;
+    pub const VIRT_APLIC_M      : usize = 0xc000000;
+    pub const VIRT_APLIC_S      : usize = 0xd000000;
+    pub const VIRT_UART0        : usize = 0x10000000;
+    pub const VIRT_VIRTIO       : usize = 0x10001000;
+    pub const VIRT_FW_CFG       : usize = 0x10100000;
+    pub const VIRT_FLASH        : usize = 0x20000000;
+    pub const VIRT_IMSIC_M      : usize = 0x24000000;
+    pub const VIRT_IMSIC_S      : usize = 0x28000000;
+    pub const VIRT_PCIE_ECAM    : usize = 0x30000000;
+    pub const VIRT_PCIE_MMIO    : usize = 0x40000000;
+    pub const VIRT_DRAM         : usize = 0x80000000;
+}
+
+pub struct PTEPerms;
+impl PTEPerms {
+    pub const VALID : u64 = 1u64;
+    pub const READ  : u64 = 1u64 << 1;
+    pub const WRITE : u64 = 1u64 << 2;
+    pub const EXEC  : u64 = 1u64 << 3;
+    pub const USER  : u64 = 1u64 << 4;
+}
+
+
+#[macro_export]
+macro_rules! addr_get_page_index{
+    ($addr:expr, $level:expr) => {{
+        let index = $addr >> ( 9 * $level) + crate::virtm::PAGE_OFFSET;
+        index
+    }};
+}
+
+pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
+    let pt_set = unsafe { KERN_SATP != 0};
+    if pt_set {
+        for addr_level in  (2..=1).rev(){
+            let pt_kernel = unsafe { KERN_SATP as *mut u64 };
+            let page_idx  = addr_get_page_index!(vm_addr, addr_level);
+            let pt_slice  = unsafe {
+                core::slice::from_raw_parts_mut(pt_kernel, PAGE_SIZE / core::mem::size_of::<u64>())
+            };
+            if let Some(entry) = pt_slice.get_mut(page_idx){
+                let next_pg_index = *entry >> 10;
+                if next_pg_index == 0 { 
+                    unsafe{
+                        if let Some(allocator) = &mut KERN_PG_ALLOCATOR{
+                            let allocated_addr = allocator.allocate();
+                            match allocated_addr {
+                                Some(addr) => {
+                                    let pg_index  = ((addr as usize) / PAGE_SIZE) as u64;
+                                    let entry_val = (pg_index << 10) | perms;
+                                    *entry = entry_val;
+                                },
+                                None => return
+                            }
+                        }
+                    };
+                }
+                // page exists
+            };
+        }
+    }
+}
+
+pub fn kern_vm_create_maps(){
+    vm_map(VirtMemMap::VIRT_UART0, 
+           VirtMemMap::VIRT_UART0, PAGE_SIZE,
+           PTEPerms::WRITE | PTEPerms::READ);
+}
+
+fn kern_vm_init(){
+    let mut satp_created = false;
+    unsafe {
+        let kern_end = end as usize;
+        let mem_size = KERN_RESERV - (kern_end - KERN_START);
+        KERN_PG_ALLOCATOR   = Some(KPageAllocator::new(kern_end, mem_size));
+        {
+            if let Some(allocator)  = &mut KERN_PG_ALLOCATOR{
+                let page = allocator.allocate();
+                match page {
+                    Some(page) => {
+                        KERN_SATP = page as usize;
+                        satp_created = true;
+                    },
+                    None => {}
+                }
+            }
+        }
+    }
+    if satp_created {kern_vm_create_maps();}
+}
+
