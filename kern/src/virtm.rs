@@ -1,12 +1,13 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 
-const PAGE_SIZE:  usize = 4096;
-const BITMAP_LEN: usize = 64;
-const PAGE_OFFSET:  usize = 12;
+const PAGE_SIZE   : usize = 4096;
+const BITMAP_LEN  : usize = 64;
+const PAGE_OFFSET : usize = 12;
+const PAGE_FLAGS  : u8    = 10;
 
-const KERN_START:  usize = 0x80000000;
-const KERN_RESERV: usize = 128 * (1024 * 1024);
-const MEM_MAX:     usize = 1usize << (9 + 9 + 9 + 12 - 1);
+const KERN_START  : usize = 0x80000000;
+const KERN_RESERV : usize = 128 * (1024 * 1024);
+const MEM_MAX     : usize = 1usize << (9 + 9 + 9 + 12 - 1);
 
 static mut KERN_SATP: usize = 0;
 static mut KERN_PG_ALLOCATOR: Option<KPageAllocator> = None;
@@ -147,34 +148,60 @@ macro_rules! addr_get_page_index{
     }};
 }
 
+/// Uses RISCV SV39 Scheme
 pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
     let pt_set = unsafe { KERN_SATP != 0};
+    
     if pt_set {
-        for addr_level in  (2..=1).rev(){
-            let pt_kernel = unsafe { KERN_SATP as *mut u64 };
-            let page_idx  = addr_get_page_index!(vm_addr, addr_level);
-            let pt_slice  = unsafe {
-                core::slice::from_raw_parts_mut(pt_kernel, PAGE_SIZE / core::mem::size_of::<u64>())
-            };
-            if let Some(entry) = pt_slice.get_mut(page_idx){
-                let next_pg_index = *entry >> 10;
-                if next_pg_index == 0 { 
-                    unsafe{
-                        if let Some(allocator) = &mut KERN_PG_ALLOCATOR{
-                            let allocated_addr = allocator.allocate();
-                            match allocated_addr {
-                                Some(addr) => {
-                                    let pg_index  = ((addr as usize) / PAGE_SIZE) as u64;
-                                    let entry_val = (pg_index << 10) | perms;
-                                    *entry = entry_val;
-                                },
-                                None => return
+        let pg_table_len: usize =  PAGE_SIZE / core::mem::size_of::<u64>();
+        let max_addr    : usize = vm_addr + map_size;
+        let mut curr_vm_addr = vm_addr;
+        let mut curr_phys_addr = phys_addr;
+
+        while curr_vm_addr < max_addr {
+            let mut page_table = unsafe { KERN_SATP as *mut u64 };
+            for addr_level in  (2..=1).rev(){
+                let page_idx  = addr_get_page_index!(curr_vm_addr, addr_level);
+                let pt_slice  = unsafe {
+                    core::slice::from_raw_parts_mut(page_table, pg_table_len)
+                };
+                if let Some(entry) = pt_slice.get_mut(page_idx){
+                    let page_valid = (*entry & PTEPerms::VALID) != 0;
+                    if !page_valid { 
+                        unsafe{
+                            if let Some(allocator) = &mut KERN_PG_ALLOCATOR{
+                                let allocated_addr = allocator.allocate();
+                                match allocated_addr {
+                                    Some(addr) => {
+                                        let pg_index  = (addr as usize) / PAGE_SIZE;
+                                        page_table = (pg_index * PAGE_SIZE) as *mut u64;
+                                        let entry_val = ((pg_index as u64) << PAGE_FLAGS) | PTEPerms::VALID | perms ;
+                                        *entry = entry_val;
+                                    },
+                                    None => return
+                                }
                             }
-                        }
-                    };
+                        };
+                    }
+                    page_table = ((*entry >> PAGE_FLAGS) * PAGE_SIZE as u64) as *mut u64;
+                };
+            }
+
+            let level_page_idx  = addr_get_page_index!(curr_vm_addr, 0);
+            unsafe {
+                let pt_slice = core::slice::from_raw_parts_mut(page_table, pg_table_len);
+                if let Some(entry) = pt_slice.get_mut(level_page_idx){
+                    let phys_pg_index = (curr_phys_addr / PAGE_SIZE) as u64;
+                    *entry = (phys_pg_index << PAGE_FLAGS) | PTEPerms::VALID | perms;
                 }
-                // page exists
             };
+
+            /* 
+            TODO: We will need to be able to map contiguous VM pages
+                  to non-contiguous PM pages.
+            */
+            curr_phys_addr += PAGE_SIZE;
+            curr_vm_addr   += PAGE_SIZE;
         }
     }
 }
@@ -206,4 +233,3 @@ fn kern_vm_init(){
     }
     if satp_created {kern_vm_create_maps();}
 }
-
