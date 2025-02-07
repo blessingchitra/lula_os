@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(naked_functions)]
 #![feature(custom_test_frameworks)]
-#![test_runner(crate::test::test_runner)]
 
 use kernel::*;
 use crate::riscv::Register; 
@@ -60,19 +59,6 @@ mod test {
         }
     }
 
-    #[macro_export]
-    macro_rules! hades_test {
-        (fn $name:ident() { $($tt:tt)* }) => {
-            #[test_case]
-            fn $name() {
-                $crate::debug_print!("{}...", stringify!($name));
-                {
-                    $($tt)*
-                };
-                $crate::debug_println!("[ok]");
-            }
-        };
-    }
     #[cfg(test)]
     mod test {
     }

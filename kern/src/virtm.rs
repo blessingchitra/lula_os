@@ -13,7 +13,8 @@ static mut KERN_SATP: usize = 0;
 static mut KERN_PG_ALLOCATOR: Option<KPageAllocator> = None;
 
 extern "C" {
-    static end: *const u8;
+    static end:   *const u8;
+    static etext: *const u8;
 }
 
 pub struct KPageAllocator {
@@ -22,8 +23,13 @@ pub struct KPageAllocator {
     page_count:  usize,
 }
 
+pub enum AllocErr{
+    AddrNotAligned,
+    AddrNotValid
+}
+
 impl KPageAllocator {
-    pub fn new(mem_start: usize, size: usize) -> Self {
+    pub fn new(mem_start: usize, size: usize) -> Result<Self, AllocErr> {
         let page_count = size / PAGE_SIZE;
         let num_bitmaps = (page_count + (BITMAP_LEN - 1)) / BITMAP_LEN;
 
@@ -31,13 +37,14 @@ impl KPageAllocator {
         let pmap = unsafe {
             core::slice::from_raw_parts_mut(map_mem, num_bitmaps) };
 
-        // TODO: Maybe we reserve the first page altogether for the page map ?
-        let memory = mem_start + (num_bitmaps * core::mem::size_of::<AtomicU64>());
-        Self {
+        let mut alloc_start = mem_start + (num_bitmaps * core::mem::size_of::<AtomicU64>());
+        alloc_start = (alloc_start + (PAGE_SIZE - 1)) & !PAGE_SIZE - 1;
+        
+        Ok(Self {
             pmap,
-            alloc_start: memory,
+            alloc_start,
             page_count
-        }
+        })
     }
 
     pub fn allocate(&mut self) -> Option<*mut u8>{
@@ -58,6 +65,8 @@ impl KPageAllocator {
         return None;
     }
 
+    // TODO: deallocate more than one page 
+    //      `pub fn deallocate(&mut self, addr: *mut u8, size: usize){` 
     pub fn deallocate(&mut self, addr: *mut u8){
         let addr = addr as usize;
         let invalid_addr = addr < self.alloc_start || (addr % PAGE_SIZE) != 0;
@@ -96,12 +105,15 @@ fn test(){
     const LEN: usize = (1024 * 1024) / 8;
     let mut memory = [0u64; LEN];
 
-    let mut allocator = KPageAllocator::new(memory.as_mut_ptr() as usize, LEN);
-    let allocated_arr = allocator.allocate().unwrap();
-    assert!(allocator.page_allocated(allocated_arr));
+    if let Ok(allocator) = 
+        &mut KPageAllocator::new(memory.as_mut_ptr() as usize, LEN){
 
-    allocator.deallocate(allocated_arr);
-    assert!(!allocator.page_allocated(allocated_arr))
+        let allocated_arr = allocator.allocate().unwrap();
+        assert!(allocator.page_allocated(allocated_arr));
+
+        allocator.deallocate(allocated_arr);
+        assert!(!allocator.page_allocated(allocated_arr))
+    }
 }
 
 // https://github.com/qemu/qemu/blob/master/hw/riscv/virt.c
@@ -206,10 +218,28 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
     }
 }
 
+
 pub fn kern_vm_create_maps(){
+    const KERN_END = unsafe { etext as usize };
     vm_map(VirtMemMap::VIRT_UART0, 
            VirtMemMap::VIRT_UART0, PAGE_SIZE,
            PTEPerms::WRITE | PTEPerms::READ);
+    
+    vm_map(VirtMemMap::VIRT_VIRTIO, 
+            VirtMemMap::VIRT_VIRTIO, PAGE_SIZE, 
+            PTEPerms::WRITE | PTEPerms::READ);
+    
+    vm_map(VirtMemMap::VIRT_PLIC, 
+            VirtMemMap::VIRT_PLIC, 0x4000000, 
+            PTEPerms::WRITE | PTEPerms::READ);
+
+    vm_map(KERN_START, KERN_START, 
+            KERN_END - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
+
+    // map kernel stack
+
+
+    
 }
 
 fn kern_vm_init(){
@@ -217,12 +247,13 @@ fn kern_vm_init(){
     unsafe {
         let kern_end = end as usize;
         let mem_size = KERN_RESERV - (kern_end - KERN_START);
-        KERN_PG_ALLOCATOR   = Some(KPageAllocator::new(kern_end, mem_size));
-        {
-            if let Some(allocator)  = &mut KERN_PG_ALLOCATOR{
-                let page = allocator.allocate();
+        if let Ok(mut kallocator) = KPageAllocator::new(kern_end, mem_size){
+            {
+                let alloc_ref = &mut kallocator;
+                let page = alloc_ref.allocate();
                 match page {
                     Some(page) => {
+                        KERN_PG_ALLOCATOR = Some(kallocator);
                         KERN_SATP = page as usize;
                         satp_created = true;
                     },

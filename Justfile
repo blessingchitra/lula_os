@@ -8,7 +8,7 @@ kernel:
 	cd kern && cargo build -Z build-std=core,alloc \
 	 --target riscv64gc-unknown-none-elf 
 
-test-mem:
+test:
 	cd sim && cargo test --verbose
 
 qemu_args := "-M virt -m 2G -nographic"
