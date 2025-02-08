@@ -1,4 +1,5 @@
 use crate::plic;
+use crate::virtm;
 
 #[allow(non_upper_case_globals)]
 static mut sys_initialised: bool = false;
@@ -18,7 +19,6 @@ pub extern "C" fn sys_init()
 
     RegMEPC::write(kern_exec as usize);
 
-    RegSATP::write(0); // no paging yet
     RegSTVec::write(kern_trap as usize);
 
     RegMEDeleg::write(0xffff);
@@ -40,12 +40,16 @@ pub extern "C" fn sys_init()
 
     if cpu_id == 0 { 
         plic::plic_init(0); 
+        virtm::kern_vm_init();
         unsafe {sys_initialised = true};
     }
 
     while (cpu_id != 0) && !unsafe { sys_initialised } { }
 
-    unsafe { core::arch::asm!("mret") };
+    unsafe {
+        RegSATP::write(virtm::KERN_SATP); 
+        core::arch::asm!("mret")
+    };
 }
 
 

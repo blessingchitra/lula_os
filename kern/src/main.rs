@@ -36,7 +36,7 @@ pub unsafe extern "C" fn kern_exec() -> ! {
 
     }
 
-loop {
+    loop {
         1;
     }
 }

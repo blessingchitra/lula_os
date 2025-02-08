@@ -13,6 +13,6 @@ opt-level = 0
 debug = true
 opt-level = 3
 
-# [lib]
-# test = false
-# bench = false
+[lib]
+test = false
+bench = false
