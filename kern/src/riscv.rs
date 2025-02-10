@@ -47,7 +47,7 @@ pub extern "C" fn sys_init()
     while (cpu_id != 0) && !unsafe { sys_initialised } { }
 
     unsafe {
-        RegSATP::write(virtm::KERN_SATP); 
+        RegSATP::set_root_page_sv39_(virtm::KERN_SATP);
         core::arch::asm!("mret")
     };
 }
@@ -453,17 +453,18 @@ impl Register for RegPmpAddr0 {
     
 }
 
-#[macro_export]
-macro_rules! make_satp{
-    ($pagetable:expr) => {
-        $crate::riscv::SATP_SV39 | $pagetable as u64 >> 12
-    };
+
+#[export_name = "prop_satp"]
+fn prop_satp(){
+    let x = 10;
+    let z = x + 3;
 }
 
 /// The address of the page table.
 pub struct RegSATP;
-impl Register for RegSATP {
-    fn read() -> usize {
+impl RegSATP {
+    pub const SV39: u64 = 8 << 60;
+    pub fn read() -> usize {
         let x: usize;
         unsafe {
             core::arch::asm!(
@@ -474,7 +475,7 @@ impl Register for RegSATP {
         x
     }
 
-    fn write(x: usize) {
+    pub fn write(x: u64) {
         unsafe {
             core::arch::asm!(
                 "csrw satp, {}",
@@ -482,6 +483,14 @@ impl Register for RegSATP {
             )
         }
     }
+
+    fn set_root_page_sv39_(addr: u64){
+        unsafe { core::arch::asm!("sfence.vma zero, zero"); };
+        let addr = (addr >> 12) | RegSATP::SV39;
+        RegSATP::write(addr);
+        unsafe { core::arch::asm!("sfence.vma zero, zero"); };
+    }
+
 }
 
 /// Supervisor trap cause

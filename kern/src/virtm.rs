@@ -6,11 +6,12 @@ const PAGE_OFFSET : usize = 12;
 const PAGE_FLAGS  : u8    = 10;
 const LEVEL_MASK  : usize = 0x1FF;
 
+
 const KERN_START  : usize = 0x80000000;
 const KERN_RESERV : usize = 128 * (1024 * 1024);
 const MEM_MAX     : usize = 1usize << (9 + 9 + 9 + 12 - 1);
 
-pub static mut KERN_SATP: usize = 0;
+pub static mut KERN_SATP: u64 = 0;
 pub static mut KERN_PG_ALLOCATOR: Option<KPageAllocator> = None;
 
 pub struct KPageAllocator {
@@ -55,6 +56,7 @@ impl KPageAllocator {
                 
                 let offset = (BITMAP_LEN * idx) + bit_idx;
                 let page = (self.alloc_start + (PAGE_SIZE * offset)) as *mut u8;
+                // unsafe { core::ptr::write_bytes(page, 0, PAGE_SIZE); };
                 return Some(page);
             }
         }
@@ -157,10 +159,23 @@ macro_rules! addr_get_page_index{
     }};
 }
 
+#[export_name = "vm_map_exit"]
+fn vm_map_exit(pages: i32, arr_idx: usize){
+    let s = 3;
+    let _m = s + 2;
+}
+
+// debug-staff
+static mut addr_entries: [(usize, usize, usize, usize); 6] = [(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),];
 
 /// Uses RISCV SV39 Scheme
 pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
+    if (phys_addr % PAGE_SIZE) != 0 || (vm_addr % PAGE_SIZE) != 0 {
+        return;
+    }
     let pt_set = unsafe { KERN_SATP != 0};
+    let mut num_pages = 0;
+    let mut arr_idx = 0;
     
     if pt_set {
         let pg_table_len: usize =  PAGE_SIZE / core::mem::size_of::<u64>();
@@ -169,6 +184,7 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
         let mut curr_phys_addr = phys_addr;
 
         while curr_vm_addr < max_addr {
+            num_pages += 1;
             let mut page_table = unsafe { KERN_SATP as *mut u64 };
             for addr_level in  (1..=2).rev(){
                 let page_idx  = addr_get_page_index!(curr_vm_addr, addr_level);
@@ -183,10 +199,17 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
                                 let allocated_addr = allocator.allocate();
                                 match allocated_addr {
                                     Some(addr) => {
+                                        // core::ptr::write_bytes(addr, 0, PAGE_SIZE);
                                         let pg_index  = (addr as usize) / PAGE_SIZE;
-                                        let entry_val = ((pg_index as u64) << PAGE_FLAGS) | PTEPerms::VALID | perms ;
+                                        let entry_val = ((pg_index as u64) << PAGE_FLAGS) | PTEPerms::VALID ;
                                         *entry = entry_val;
                                         page_table = (pg_index * PAGE_SIZE) as *mut u64;
+
+                                        // debug staff
+                                        if arr_idx < 6 {
+                                            addr_entries[arr_idx] = (curr_phys_addr, curr_vm_addr, page_idx, addr_level);
+                                            arr_idx += 1;
+                                        }
                                         continue;
                                     },
                                     None => return
@@ -214,6 +237,7 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
             curr_phys_addr += PAGE_SIZE;
             curr_vm_addr   += PAGE_SIZE;
         }
+        vm_map_exit(num_pages, arr_idx);
     }
 }
 
@@ -256,11 +280,21 @@ fn get_kern_stack() -> usize {
 }
 
 
+#[export_name = "prop"]
+fn prop(){
+    let x = 10;
+    let z = x + 3;
+}
+
 pub fn kern_vm_create_maps(){
     let kern_txt_end = get_txt_end();
     let kern_stack = get_kern_stack();
     let ncpus = 2_usize;
     let stack_size = ncpus * (1024 * 4);
+
+    prop();
+    vm_map(KERN_START, KERN_START, 
+            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
 
     vm_map(VirtMemMap::VIRT_UART0, 
            VirtMemMap::VIRT_UART0, PAGE_SIZE,
@@ -274,11 +308,10 @@ pub fn kern_vm_create_maps(){
             VirtMemMap::VIRT_PLIC, 0x4000000, 
             PTEPerms::WRITE | PTEPerms::READ);
 
-    vm_map(KERN_START, KERN_START, 
-            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
 
     vm_map(kern_stack, kern_stack, stack_size, 
             PTEPerms::READ | PTEPerms::WRITE);
+    
 
 }
 
@@ -296,7 +329,7 @@ pub fn kern_vm_init(){
                 match page {
                     Some(page) => {
                         KERN_PG_ALLOCATOR = Some(kallocator);
-                        KERN_SATP = page as usize;
+                        KERN_SATP = page as u64;
                         satp_created = true;
                     },
                     None => {}

@@ -161,6 +161,7 @@ pub fn uart_putc(c: u8) -> bool {
 
 /// always returns true. returns bool just
 /// to keep the same interface as its non-blocking version
+#[export_name = "uart_putc_block"]
 pub fn uart_putc_block(c: u8) -> bool {
     while (uartrd!(LSR) & LSR_TX_IDLE) == 0 {
         core::hint::spin_loop();
