@@ -32,7 +32,7 @@ pub extern "C" fn sys_init()
     RegSIE::write(intr);
     intr_on();
     
-    // supervisor mode has access to all memory
+    // 
     RegPmpAddr0::write(0x3fffffffffffff);
     RegPmpCfg0::write(0xf);
     let cpu_id = RegMHartId::read();

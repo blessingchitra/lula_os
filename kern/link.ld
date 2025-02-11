@@ -18,6 +18,7 @@ SECTIONS
 
   .rodata : {
     . = ALIGN(16);
+    PROVIDE(data_start = .);
     *(.srodata .srodata.*) /* do not need to distinguish this from .rodata */
     . = ALIGN(16);
     *(.rodata .rodata.*)

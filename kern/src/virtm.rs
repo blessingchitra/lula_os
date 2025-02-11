@@ -279,20 +279,35 @@ fn get_kern_stack() -> usize {
     x
 }
 
+fn get_data_end() -> usize {
+    let x: usize;
+    unsafe {
+        core::arch::asm!(
+            "la {}, end",
+            out(reg) x
+        );
+    };
+    x
+}
 
-#[export_name = "prop"]
-fn prop(){
-    let x = 10;
-    let z = x + 3;
+fn get_data_start() -> usize {
+    let x: usize;
+    unsafe {
+        core::arch::asm!(
+            "la {}, data_start",
+            out(reg) x
+        );
+    };
+    x
 }
 
 pub fn kern_vm_create_maps(){
     let kern_txt_end = get_txt_end();
-    let kern_stack = get_kern_stack();
-    let ncpus = 2_usize;
-    let stack_size = ncpus * (1024 * 4);
 
-    prop();
+    let kern_data_start = get_data_start();
+    let kern_data_end = get_data_end();
+    let kern_data_size = kern_data_end - kern_data_start;
+
     vm_map(KERN_START, KERN_START, 
             kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
 
@@ -303,15 +318,16 @@ pub fn kern_vm_create_maps(){
     vm_map(VirtMemMap::VIRT_VIRTIO, 
             VirtMemMap::VIRT_VIRTIO, PAGE_SIZE, 
             PTEPerms::WRITE | PTEPerms::READ);
+
     
     vm_map(VirtMemMap::VIRT_PLIC, 
             VirtMemMap::VIRT_PLIC, 0x4000000, 
             PTEPerms::WRITE | PTEPerms::READ);
 
-
-    vm_map(kern_stack, kern_stack, stack_size, 
+    // TODO: This currently marks all the kernel data (`rodata`, `data`, `bss`) 
+    //       with read and write perms.
+    vm_map(kern_data_start, kern_data_start, kern_data_size, 
             PTEPerms::READ | PTEPerms::WRITE);
-    
 
 }
 
