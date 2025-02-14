@@ -4,6 +4,13 @@ alias r := run
 
 kernel_path := "./kern/target/riscv64gc-unknown-none-elf/debug/kernel"
 
+app:
+	cd app && cargo build -Z build-std=core,alloc \
+	 --target riscv64gc-unknown-none-elf 
+
+app-debug:
+	cd app && ./debug.sh
+
 kernel:
 	cd kern && cargo build -Z build-std=core,alloc \
 	 --target riscv64gc-unknown-none-elf 

@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+
+
 use core::iter::empty;
 
 use crate::sync::SpinLock;
@@ -25,78 +27,8 @@ pub const LSR_TX_IDLE     :u8    = 1 << 5;              // THR can accept anothe
 pub const UART0           : usize = 0x10000000;
 pub const UART0_IRQ       : u8 = 10;
 
-static UART_RX_BUFF: SpinLock<UartBuff> = SpinLock::new(UartBuff::new());
+pub static UART_RX_BUFF: SpinLock<UartBuff> = SpinLock::new(UartBuff::new());
 pub const UART_BUFF_SIZE: usize = 1024;
-
-#[derive(Debug)]
-struct UartBuff {
-    buffer: [u8; UART_BUFF_SIZE],
-    rd:     usize,
-    wt:     usize,
-}
-
-
-impl UartBuff {
-    pub const fn new() -> Self {
-        Self { 
-            buffer: [0; UART_BUFF_SIZE], 
-            rd:  0, 
-            wt:  0 
-        }
-    }
-
-    // uart receive buff can have a read function 
-    fn read (&mut self) -> Option<u8> {
-        if(self.rd != self.wt) {
-            let val = Some(self.buffer[self.rd]);
-            self.rd = ((self.rd + 1) % UART_BUFF_SIZE);
-            return val; 
-        }
-        None
-    }
-
-    // uart transmit buff can have a write function 
-    fn write(&mut self, value: u8) {
-        let nxt = (self.wt + 1) % UART_BUFF_SIZE;
-        if((nxt != self.rd)){
-            self.buffer[self.wt] = value;
-            self.wt = nxt;
-        }
-        // here we've wrapped around and are about
-        // to run into data overrun issues
-    }
-
-    fn push(&mut self, c: u8) {
-        // TODO: double check off by one error
-        let buff_full = self.rd.abs_diff(self.wt) == (UART_BUFF_SIZE - 1);
-        if !buff_full {
-            self.buffer[self.wt] = c;
-            let nxt = (self.wt + 1) % UART_BUFF_SIZE;
-            self.wt = nxt;
-        }
-    }
-
-    fn get(&mut self) -> Option<u8> {
-        if !self.isempty() {
-            let val = self.buffer.get(self.rd).copied();
-            return val;
-        }
-        None
-    }
-
-    fn pop(&mut self) {
-        if !self.isempty() {
-            let char = self.buffer.get(self.rd).copied().unwrap();
-            self.rd = (self.rd + 1) % UART_BUFF_SIZE;
-        }
-    }
-
-    fn isempty(&self) -> bool {
-        self.rd == self.wt
-    }
-
-}
-
 
 #[macro_export]
 macro_rules! uartreg {
@@ -131,6 +63,138 @@ macro_rules! uartwt{
     };
 } 
 
+#[derive(Debug)]
+pub struct UartBuff {
+    buffer: [u8; UART_BUFF_SIZE],
+    rd:     usize,
+    wt:     usize,
+}
+
+
+impl UartBuff {
+    pub const fn new() -> Self {
+        Self { 
+            buffer: [0; UART_BUFF_SIZE], 
+            rd:  0, 
+            wt:  0 
+        }
+    }
+
+    pub fn uart_getc(&self) -> Option<u8>
+    {
+        let can_read =  (uartrd!(LSR) & 0x01) != 0;
+        if can_read {
+            return Some(uartrd!(RHR));
+        }
+        None
+    }
+
+    /// (Non-Blocking) Write a character (bytes) the uart's *THR*
+    /// ### Returns
+    /// * `status` - Whether or not we wrote to the uart
+    pub fn uart_putc(&self, c: u8) -> bool {
+        let can_write = (uartrd!(LSR) & LSR_TX_IDLE) != 0;
+        if can_write {
+            uartwt!(THR, c);
+            return true;
+        }
+        false
+    }
+
+    /// (Blocking) Write a character (bytes) the uart's *THR*
+    /// ### Returns
+    /// * `status` - Whether or not we wrote to the uart
+    /// always returns true. We return bool just
+    /// to keep the same interface as its non-blocking version
+    pub fn uart_putc_block(&self, c: u8) -> bool {
+        while (uartrd!(LSR) & LSR_TX_IDLE) == 0 {
+            core::hint::spin_loop();
+        }
+        uartwt!(THR, c);
+        true
+    }
+
+    /// If there is not data passed to the function 
+    /// we send whatever is currently in the buffer
+    pub fn send(&mut self, data: Option<&str>){
+        match data {
+            Some(data) => {
+                if !data.is_empty() {
+                    for char in data.as_bytes() {
+                        self.uart_putc_block(*char);
+                    }
+                }
+            },
+            None => {
+                while !(self.rd == self.wt) {
+                    let c = self.buffer.get(self.rd).copied();
+                    match c {
+                        Some(val) => {
+                            let processed = self.uart_putc_block(val);
+                            if processed { self.pop(); } else { break }
+                        },
+                        None => break
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn receive (&mut self){
+        loop {
+            let char = self.uart_getc();
+            match char {
+                Some(char) => {
+                    let char = match char {
+                        b'\r' => b'\n',
+                        _ => char
+                    };
+                    if char == (8 | b'\x7f') { // backspace
+                        self.push(b'\x08');
+                        self.push(b' ');
+                        self.push(b'\x08');
+                    }else{
+                        self.push(char);
+                    }
+                },
+                None => break
+            }
+        }
+    }
+
+    fn push(&mut self, c: u8) {
+        // TODO: double check off by one error
+        let buff_full = self.rd.abs_diff(self.wt) == (UART_BUFF_SIZE - 1);
+        if !buff_full {
+            self.buffer[self.wt] = c;
+            let nxt = (self.wt + 1) % UART_BUFF_SIZE;
+            self.wt = nxt;
+        }
+    }
+
+    fn get(&mut self) -> Option<u8> {
+        if !self.isempty() {
+            let val = self.buffer.get(self.rd).copied();
+            return val;
+        }
+        None
+    }
+
+    fn pop(&mut self) {
+        if !self.isempty() {
+            let char = self.buffer.get(self.rd).copied().unwrap();
+            self.rd = (self.rd + 1) % UART_BUFF_SIZE;
+        }
+    }
+
+    fn isempty(&self) -> bool {
+        self.rd == self.wt
+    }
+
+}
+
+
+
 pub fn uart_init()
 {
     uartwt!(IER, 0x00);
@@ -150,17 +214,7 @@ pub fn uart_init()
     uartwt!(IER, IER_RX_ENABLE);
 }
 
-pub fn uart_putc(c: u8) -> bool {
-    let can_write = (uartrd!(LSR) & LSR_TX_IDLE) != 0;
-    if can_write {
-        uartwt!(THR, c);
-        return true;
-    }
-    false
-}
 
-/// always returns true. returns bool just
-/// to keep the same interface as its non-blocking version
 #[export_name = "uart_putc_block"]
 pub fn uart_putc_block(c: u8) -> bool {
     while (uartrd!(LSR) & LSR_TX_IDLE) == 0 {
@@ -176,14 +230,6 @@ pub fn uart_puts(s: &str) {
     }
 }
 
-pub fn uart_getc() -> Option<u8>
-{
-    let can_read =  (uartrd!(LSR) & 0x01) != 0;
-    if can_read {
-        return Some(uartrd!(RHR));
-    }
-    None
-}
 
 #[export_name = "uart_isr"]
 pub extern "C" fn uart_isr()
@@ -191,40 +237,9 @@ pub extern "C" fn uart_isr()
     let mut buff_empty = true;
     {
         let mut spinl_guard = UART_RX_BUFF.lock();
-        loop {
-            let buff = spinl_guard.get_mut();
-            let char = uart_getc();
-            match char {
-                Some(char) => {
-                    let char = match char {
-                        b'\r' => b'\n',
-                        _ => char
-                    };
-                    if char == (8 | b'\x7f') {
-                        uart_putc_block(b'\x08');
-                        uart_putc_block(b' ');
-                        uart_putc_block(b'\x08');
-                    }else{
-                        buff.push(char);
-                    }
-                },
-                None => break
-            }
-        }
-
-        loop {
-            let buff = spinl_guard.get_mut();
-            let c =  buff.get();
-            match c {
-                Some(val) => {
-                    let processed = uart_putc_block(val);
-                    if processed { buff.pop(); } else { break }
-                },
-                None => break
-            }
-        }
-
-        let buff = spinl_guard.get();
+        let buff = spinl_guard.get_mut();
+        buff.receive();
+        buff.send(None);
         buff_empty = buff.isempty();
     }
 
@@ -234,22 +249,4 @@ pub extern "C" fn uart_isr()
         uartwt!(IER, IER_RX_ENABLE | IER_TX_ENABLE)
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

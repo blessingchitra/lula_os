@@ -22,18 +22,10 @@ static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 pub unsafe extern "C" fn kern_exec() -> ! {
     let first = riscv::RegTP::read() == 0;
     if first {
-    let os = r#"
-| |         | |        / __ \ / ____|
-| |    _   _| | __ _  | |  | | (___  
-| |   | | | | |/ _` | | |  | |\___ \ 
-| |___| |_| | | (_| | | |__| |____) |
-|______\__,_|_|\__,_|  \____/|_____/ 
--------------------------------------
-    "#;
-
-    uart::uart_init();
-    uart::uart_puts(os); uart::uart_puts("\n");
-
+        uart::uart_init();
+        let name = "Blessing Chitra";
+        let addr = name.as_ptr();
+        kprintln!("System Initialised {}", *addr);
     }
 
     loop {

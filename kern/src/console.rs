@@ -1,32 +1,38 @@
-use crate::uart;
 use core::fmt::Write;
+use crate::sync::SpinLock;
+use crate::uart;
 
 pub const CONS_BUFF_SIZE: usize = 1024;
 
-pub struct KConsole;
-
-pub struct UConsole {
-    buffer: [u8; CONS_BUFF_SIZE]
-    
+pub struct KConsole{
+    buffer: &'static SpinLock<uart::UartBuff>
 }
 
+impl KConsole {
+    pub fn new(buffer: &'static SpinLock<uart::UartBuff>) -> Self {
+        KConsole{ buffer }
+    }
+}
+
+pub struct UConsole { }
 
 impl Write for KConsole {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         if !s.is_empty() {
-            uart::uart_puts(s);
+            let mut spinl_guard = self.buffer.lock();
+            let buff = spinl_guard.get_mut();
+            buff.send(Some(s));
             return Ok(());
         }
         Err(core::fmt::Error)
     }
 }
 
-
 #[macro_export]
 macro_rules! kprint{
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        let mut cons = crate::console::KConsole;
+        let mut cons = crate::console::KConsole::new(&uart::UART_RX_BUFF);
         let _ = write!(&mut cons, $($arg)*);
     }};
 }
@@ -38,4 +44,5 @@ macro_rules! kprintln {
         kprint!($($arg)*);
         kprint!("\n");
     }};
-}
+}   
+
