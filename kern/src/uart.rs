@@ -190,7 +190,6 @@ impl UartBuff {
     fn isempty(&self) -> bool {
         self.rd == self.wt
     }
-
 }
 
 

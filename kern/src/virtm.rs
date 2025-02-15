@@ -1,4 +1,5 @@
 use core::sync::atomic::{AtomicU64, Ordering};
+use crate::usr::{self, USR_PROG_START};
 
 const PAGE_SIZE   : usize = 4096;
 const BITMAP_LEN  : usize = 64;
@@ -9,7 +10,7 @@ const LEVEL_MASK  : usize = 0x1FF;
 
 const KERN_START  : usize = 0x80000000;
 const KERN_RESERV : usize = 128 * (1024 * 1024);
-const MEM_MAX     : usize = 1usize << (9 + 9 + 9 + 12 - 1);
+pub const MEM_MAX : usize = 1usize << (9 + 9 + 9 + 12 - 1);
 
 pub static mut KERN_SATP: u64 = 0;
 pub static mut KERN_PG_ALLOCATOR: Option<KPageAllocator> = None;
@@ -226,7 +227,10 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
                 let pt_slice = core::slice::from_raw_parts_mut(page_table, pg_table_len);
                 if let Some(entry) = pt_slice.get_mut(level_page_idx){
                     let phys_pg_index = (curr_phys_addr / PAGE_SIZE) as u64;
-                    *entry = (phys_pg_index << PAGE_FLAGS) | PTEPerms::VALID | perms;
+                    let is_mapped = ((*entry) & PTEPerms::VALID) != 0;
+                    // if !is_mapped{
+                        *entry = (phys_pg_index << PAGE_FLAGS) | PTEPerms::VALID | perms;
+                    // }
                 }
             };
 
@@ -279,7 +283,7 @@ fn get_kern_stack() -> usize {
     x
 }
 
-fn get_data_end() -> usize {
+pub fn get_data_end() -> usize {
     let x: usize;
     unsafe {
         core::arch::asm!(
@@ -301,12 +305,16 @@ fn get_data_start() -> usize {
     x
 }
 
+#[unsafe(no_mangle)]
 pub fn kern_vm_create_maps(){
     let kern_txt_end = get_txt_end();
 
     let kern_data_start = get_data_start();
     let kern_data_end = get_data_end();
     let kern_data_size = kern_data_end - kern_data_start;
+
+    vm_map(kern_data_end, kern_data_end, KERN_RESERV, 
+            PTEPerms::READ | PTEPerms::WRITE);
 
     vm_map(KERN_START, KERN_START, 
             kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
@@ -324,10 +332,11 @@ pub fn kern_vm_create_maps(){
             VirtMemMap::VIRT_PLIC, 0x4000000, 
             PTEPerms::WRITE | PTEPerms::READ);
 
-    // TODO: This currently marks all the kernel data (`rodata`, `data`, `bss`) 
+    // TODO: FIXME: This currently marks all the kernel data (`rodata`, `data`, `bss`) 
     //       with read and write perms.
     vm_map(kern_data_start, kern_data_start, kern_data_size, 
             PTEPerms::READ | PTEPerms::WRITE);
+
 
 }
 
@@ -354,4 +363,11 @@ pub fn kern_vm_init(){
         }
     }
     if satp_created {kern_vm_create_maps();}
+}
+
+pub extern "C" fn memcpy(dst: *mut u8, src: *const u8, count: usize) -> *mut u8{
+    unsafe {
+        core::ptr::copy_nonoverlapping(src, dst, count);
+    };
+    dst
 }

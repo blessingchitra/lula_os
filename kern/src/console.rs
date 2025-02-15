@@ -32,7 +32,7 @@ impl Write for KConsole {
 macro_rules! kprint{
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        let mut cons = crate::console::KConsole::new(&uart::UART_RX_BUFF);
+        let mut cons = crate::console::KConsole::new(&crate::uart::UART_RX_BUFF);
         let _ = write!(&mut cons, $($arg)*);
     }};
 }
@@ -41,8 +41,8 @@ macro_rules! kprint{
 macro_rules! kprintln {
     () => { kprint!("\n"); };
     ($($arg:tt)*) => {{
-        kprint!($($arg)*);
-        kprint!("\n");
+        crate::kprint!($($arg)*);
+        crate::kprint!("\n");
     }};
 }   
 

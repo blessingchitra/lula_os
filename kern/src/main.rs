@@ -5,6 +5,8 @@
 
 use kernel::*;
 use crate::riscv::Register; 
+use crate::virtm;
+use crate::usr;
 
 const NCPU: u32         = 2;
 const CSTACKSIZE: usize = (NCPU * (1024 * 4)) as usize; // cpu stack size
@@ -23,9 +25,11 @@ pub unsafe extern "C" fn kern_exec() -> ! {
     let first = riscv::RegTP::read() == 0;
     if first {
         uart::uart_init();
-        let name = "Blessing Chitra";
-        let addr = name.as_ptr();
-        kprintln!("System Initialised {}", *addr);
+        let kern_end = virtm::get_data_end();
+
+        kprintln!("System Initialised.");
+        kprintln!("Kern End: {:#x}, VA Max: {:#x}", kern_end, virtm::MEM_MAX);
+        usr::usr_load_and_exec();
     }
 
     loop {

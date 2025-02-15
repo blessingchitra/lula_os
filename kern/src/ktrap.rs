@@ -1,6 +1,7 @@
 use crate::{plic_sclaim_r, plic_sclaim_w};
 use crate::riscv::{RegSCause, RegSEPC, Register}; 
 use crate::uart::{uart_isr, uart_puts, UART0_IRQ};
+use crate::kprintln;
 
 #[naked]
 #[export_name = "kern_trap"]
@@ -85,7 +86,19 @@ pub extern "C" fn ktrap_isr()
             0 => uart_puts("Instruction address misaligned"),
             1 => uart_puts("Instruction access fault"),
             2 => uart_puts("Illegal instruction"),
-            _ => uart_puts("Unknown/unhandled exception"),
+            4..=7 => {
+                uart_puts("Illegal Memory Access");
+                loop {
+                    1;
+                }
+            },
+            _ => {
+                uart_puts("Unknown/unhandled exception: ");
+                kprintln!("code: {}", code);
+                loop {
+                    1;
+                }
+            },
         }
     }
     plic_sclaim_w!(0, intr_id);
