@@ -20,16 +20,29 @@ const TRAPFRAME:  u64 = (MAXVA - PGSIZE) as u64;
 #[no_mangle]
 static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
+#[unsafe(no_mangle)]
+fn kern_prop(){
+    let x = 5 + 3;
+    let _y = x +9;
+
+}
+
 #[export_name = "kern_exec"]
 pub unsafe extern "C" fn kern_exec() -> ! {
-    let first = riscv::RegTP::read() == 0;
-    if first {
-        uart::uart_init();
+    kern_prop();
+    let cpu_first = riscv::RegTP::read() == 0;
+    if cpu_first {
         let kern_end = virtm::get_data_end();
 
         kprintln!("System Initialised.");
         kprintln!("Kern End: {:#x}, VA Max: {:#x}", kern_end, virtm::MEM_MAX);
-        usr::usr_load_and_exec();
+        // usr::usr_load_and_exec();
+        let table = virtm::KERN_SATP as *mut u64;
+        let name = "Blessing";
+        let name_addr = name.as_ptr() ;
+        let dbg_info = virtm::addr_dbg(virtm::KERN_START, table);
+        kprint!("user: {}", name);
+        kprintln!("{:?}", dbg_info);
     }
 
     loop {

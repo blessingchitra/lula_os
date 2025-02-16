@@ -15,7 +15,8 @@ pub fn usr_mem_setup() {
         if let Some(allocator) = &mut virtm::KERN_PG_ALLOCATOR {
             if let Some(page) = allocator.allocate(){
                 USR_PROG_START = page as usize;
-                virtm::vm_map(USR_PROG_START, USR_PROG_START, 
+                let dst = USR_PROG_START;
+                virtm::vm_map(dst, dst, 
                         USR_PROG_SIZE, virtm::PTEPerms::READ | virtm::PTEPerms::EXEC | virtm::PTEPerms::WRITE);
             }
         }
@@ -25,13 +26,13 @@ pub fn usr_mem_setup() {
 #[unsafe(no_mangle)]
 pub fn usr_load_and_exec(){
     usr_mem_setup();
-    let dst  = unsafe{USR_PROG_START};
+    let dst  = unsafe{ USR_PROG_START };
     let src = USR_PROG.as_ptr();
     if dst == 0 {
         kprintln!("Page Not Allocated for USR program. Addr: {:#x}", dst);
         return;
     }
-    kprint!("USR Prog Addr: {:#x}", dst);
+    kprintln!("USR Prog Addr: {:#x}", dst);
     virtm::memcpy(dst as *mut u8, src, USR_PROG_SIZE);
     unsafe {
         core::arch::asm!(

@@ -1,5 +1,6 @@
 use crate::plic;
 use crate::virtm;
+use crate::uart;
 
 #[allow(non_upper_case_globals)]
 static mut sys_initialised: bool = false;
@@ -39,6 +40,7 @@ pub extern "C" fn sys_init()
     RegTP::write(cpu_id);
 
     if cpu_id == 0 { 
+        uart::uart_init();
         plic::plic_init(0); 
         virtm::kern_vm_init();
         unsafe {sys_initialised = true};

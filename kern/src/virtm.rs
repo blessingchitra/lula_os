@@ -8,8 +8,8 @@ const PAGE_FLAGS  : u8    = 10;
 const LEVEL_MASK  : usize = 0x1FF;
 
 
-const KERN_START  : usize = 0x80000000;
-const KERN_RESERV : usize = 128 * (1024 * 1024);
+pub const KERN_START  : usize = 0x80000000;
+pub const KERN_RESERV : usize = 128 * (1024 * 1024);
 pub const MEM_MAX : usize = 1usize << (9 + 9 + 9 + 12 - 1);
 
 pub static mut KERN_SATP: u64 = 0;
@@ -245,6 +245,66 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
     }
 }
 
+
+#[allow(unused)]
+pub struct AddrDebug {
+    address     : usize,
+    is_valid    : bool,
+    is_writable : bool,
+    is_exec     : bool,
+    is_read     : bool,
+
+}
+impl core::fmt::Debug for AddrDebug {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AddrDebug")
+            .field("address", &format_args!("{:#x}", self.address))
+            .field("is_valid", &self.is_valid)
+            .field("is_writable", &self.is_writable)
+            .field("is_exec", &self.is_exec)
+            .field("is_read", &self.is_read)
+            .finish()
+    }
+}
+
+// walk RISC SV39 page table and get debug info 
+#[unsafe(no_mangle)]
+pub fn addr_dbg(addr: usize, page_table: *mut u64) -> AddrDebug {
+    let mut table = page_table;
+    let mut table_entry: u64 = 0;
+    let entry_count = PAGE_SIZE / core::mem::size_of::<u64>();
+
+    let dbg_info = AddrDebug {
+        address     : addr,
+        is_valid    : false,
+        is_read     : false,
+        is_writable : false,
+        is_exec     : false,
+    };
+
+    for level in (0..=2).rev() {
+        let idx = addr_get_page_index!(addr, level);
+        let entries = unsafe{
+            core::slice::from_raw_parts(table, entry_count) };
+        match entries.get(idx) {
+            Some(entry) => {
+                table_entry = *entry;
+                let is_valid   = (table_entry & PTEPerms::VALID) != 0;
+                if !is_valid { return dbg_info; }
+                let page_no = table_entry >> PAGE_FLAGS; // PAGE_FLAGS = 10
+                table  = ((PAGE_SIZE as u64) * page_no) as *mut u64;
+            },
+            None => {return dbg_info;} 
+        }
+    }
+    let is_valid    = (table_entry & PTEPerms::VALID) != 0;
+    let is_writable = (table_entry & PTEPerms::WRITE) != 0;
+    let is_exec     = (table_entry & PTEPerms::EXEC)  != 0;
+    let is_read     = (table_entry & PTEPerms::READ)  != 0;
+    AddrDebug {address: addr, is_valid, is_writable, is_exec, is_read }
+}
+
+
 #[inline]
 fn get_end() -> usize{
     let x: usize;
@@ -310,10 +370,12 @@ pub fn kern_vm_create_maps(){
     let kern_txt_end = get_txt_end();
 
     let kern_data_start = get_data_start();
-    let kern_data_end = get_data_end();
+    let kern_data_end  = get_data_end();
     let kern_data_size = kern_data_end - kern_data_start;
 
-    vm_map(kern_data_end, kern_data_end, KERN_RESERV, 
+
+    let kern_end = get_end();
+    vm_map(kern_end, kern_end, MEM_MAX - kern_end, 
             PTEPerms::READ | PTEPerms::WRITE);
 
     vm_map(KERN_START, KERN_START, 
@@ -337,8 +399,9 @@ pub fn kern_vm_create_maps(){
     vm_map(kern_data_start, kern_data_start, kern_data_size, 
             PTEPerms::READ | PTEPerms::WRITE);
 
-
-}
+    // let dbg_info = addr_dbg(KERN_START, table as *mut u64);
+    // kprintln!("kern dbg: {:?}", dbg_info);
+ }
 
 
 
