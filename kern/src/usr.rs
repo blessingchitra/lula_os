@@ -17,7 +17,7 @@ pub fn usr_mem_setup() {
                 USR_PROG_START = page as usize;
                 let dst = USR_PROG_START;
                 virtm::vm_map(dst, dst, 
-                        USR_PROG_SIZE, virtm::PTEPerms::READ | virtm::PTEPerms::EXEC | virtm::PTEPerms::WRITE);
+                        USR_PROG_SIZE, virtm::PTEPerms::READ | virtm::PTEPerms::EXEC | virtm::PTEPerms::WRITE, "Custom map\n");
             }
         }
     };
@@ -32,8 +32,22 @@ pub fn usr_load_and_exec(){
         kprintln!("Page Not Allocated for USR program. Addr: {:#x}", dst);
         return;
     }
-    kprintln!("USR Prog Addr: {:#x}", dst);
+
+    let table = unsafe {virtm::KERN_SATP as *mut u64};
+    virtm::addr_dbg(dst, table);
+
+    // kprintln!("USR Prog Addr: {:#x}", dst);
     virtm::memcpy(dst as *mut u8, src, USR_PROG_SIZE);
+
+    let prog_slice = unsafe {
+        core::slice::from_raw_parts(dst as *const u8, USR_PROG_SIZE)
+    };
+
+    for (index, byte )in prog_slice.iter().enumerate() {
+        let endline = if index != 0 && (index % 4) == 0 { "\n"} else {" "};
+        kprint!("{:#x}{}", byte, endline);
+    }
+    
     unsafe {
         core::arch::asm!(
             "jr {}",

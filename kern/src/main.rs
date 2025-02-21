@@ -36,13 +36,7 @@ pub unsafe extern "C" fn kern_exec() -> ! {
 
         kprintln!("System Initialised.");
         kprintln!("Kern End: {:#x}, VA Max: {:#x}", kern_end, virtm::MEM_MAX);
-        // usr::usr_load_and_exec();
-        let table = virtm::KERN_SATP as *mut u64;
-        let name = "Blessing";
-        let name_addr = name.as_ptr() ;
-        let dbg_info = virtm::addr_dbg(virtm::KERN_START, table);
-        kprint!("user: {}", name);
-        kprintln!("{:?}", dbg_info);
+        usr::usr_load_and_exec();
     }
 
     loop {

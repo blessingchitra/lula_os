@@ -171,6 +171,8 @@ impl RegSStatus {
     pub const SSTATUS_SIE  : usize = 1 << 1;  // Supervisor Interrupt Enable
     pub const SSTATUS_UIE  : usize = 1 << 0;  // User Interrupt Enable
 
+    pub const SSTATUS_MXR  : usize = 1 << 19;
+
     pub fn intr_on() {
         unsafe {
             core::arch::asm!("csrsi sstatus, 1 << 1"); 

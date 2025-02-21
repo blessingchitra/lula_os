@@ -1,5 +1,6 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use crate::usr::{self, USR_PROG_START};
+use crate::uart;
 
 const PAGE_SIZE   : usize = 4096;
 const BITMAP_LEN  : usize = 64;
@@ -170,8 +171,13 @@ fn vm_map_exit(pages: i32, arr_idx: usize){
 static mut addr_entries: [(usize, usize, usize, usize); 6] = [(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),(0, 0, 0, 0),];
 
 /// Uses RISCV SV39 Scheme
-pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
+#[unsafe(no_mangle)]
+pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64, region: &str) {
+    uart::uart_puts(region);
+
+    let kern_end = get_end();
     if (phys_addr % PAGE_SIZE) != 0 || (vm_addr % PAGE_SIZE) != 0 {
+        kprintln!("Cannot map address. Not Aligned.{:#x} {:#x} {}", phys_addr, kern_end, region);
         return;
     }
     let pt_set = unsafe { KERN_SATP != 0};
@@ -213,12 +219,19 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
                                         }
                                         continue;
                                     },
-                                    None => return
+                                    None => {
+                                        uart::uart_puts(" Could not allocate page. region: ");
+                                        uart::uart_puts(region);
+                                        return;
+                                    }
                                 }
                             }
                         };
                     }
                     page_table = ((*entry >> PAGE_FLAGS) * PAGE_SIZE as u64) as *mut u64;
+                }else{
+                    kprintln!("Invalid index into page table");
+                    return;
                 };
             }
 
@@ -227,10 +240,7 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64) {
                 let pt_slice = core::slice::from_raw_parts_mut(page_table, pg_table_len);
                 if let Some(entry) = pt_slice.get_mut(level_page_idx){
                     let phys_pg_index = (curr_phys_addr / PAGE_SIZE) as u64;
-                    let is_mapped = ((*entry) & PTEPerms::VALID) != 0;
-                    // if !is_mapped{
-                        *entry = (phys_pg_index << PAGE_FLAGS) | PTEPerms::VALID | perms;
-                    // }
+                    *entry = (phys_pg_index << PAGE_FLAGS) | PTEPerms::VALID | perms;
                 }
             };
 
@@ -374,41 +384,46 @@ pub fn kern_vm_create_maps(){
     let kern_data_size = kern_data_end - kern_data_start;
 
 
-    let kern_end = get_end();
-    vm_map(kern_end, kern_end, MEM_MAX - kern_end, 
-            PTEPerms::READ | PTEPerms::WRITE);
+    let mut kern_end = get_end();
+        // let mut alloc_start = mem_start + (num_bitmaps * core::mem::size_of::<AtomicU64>());
+    kern_end = (kern_end + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
+    let mem_size = KERN_RESERV - (kern_end - KERN_START);
+
+    vm_map(kern_end, kern_end, mem_size, 
+            PTEPerms::READ | PTEPerms::WRITE | PTEPerms::EXEC, "Free Range\n");
 
     vm_map(KERN_START, KERN_START, 
-            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC);
+            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC, "Kern Code\n");
 
     vm_map(VirtMemMap::VIRT_UART0, 
            VirtMemMap::VIRT_UART0, PAGE_SIZE,
-           PTEPerms::WRITE | PTEPerms::READ);
+           PTEPerms::WRITE | PTEPerms::READ, "Uart\n");
     
     vm_map(VirtMemMap::VIRT_VIRTIO, 
             VirtMemMap::VIRT_VIRTIO, PAGE_SIZE, 
-            PTEPerms::WRITE | PTEPerms::READ);
+            PTEPerms::WRITE | PTEPerms::READ, "Virt IO\n");
 
     
     vm_map(VirtMemMap::VIRT_PLIC, 
             VirtMemMap::VIRT_PLIC, 0x4000000, 
-            PTEPerms::WRITE | PTEPerms::READ);
+            PTEPerms::WRITE | PTEPerms::READ, "PLIC\n");
 
     // TODO: FIXME: This currently marks all the kernel data (`rodata`, `data`, `bss`) 
     //       with read and write perms.
     vm_map(kern_data_start, kern_data_start, kern_data_size, 
-            PTEPerms::READ | PTEPerms::WRITE);
+            PTEPerms::READ | PTEPerms::WRITE, "Data Section\n");
 
     // let dbg_info = addr_dbg(KERN_START, table as *mut u64);
     // kprintln!("kern dbg: {:?}", dbg_info);
  }
 
 
-
+#[unsafe(no_mangle)]
 pub fn kern_vm_init(){
     let mut satp_created = false;
     unsafe {
-        let kern_end = get_end();
+        let mut kern_end = get_end();
+        kern_end = (kern_end + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
         let mem_size = KERN_RESERV - (kern_end - KERN_START);
         if let Ok(mut kallocator) = KPageAllocator::new(kern_end, mem_size){
             {
