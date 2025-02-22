@@ -33,22 +33,10 @@ pub fn usr_load_and_exec(){
         return;
     }
 
-    let table = unsafe {virtm::KERN_SATP as *mut u64};
-    virtm::addr_dbg(dst, table);
-
-    // kprintln!("USR Prog Addr: {:#x}", dst);
     virtm::memcpy(dst as *mut u8, src, USR_PROG_SIZE);
-
-    let prog_slice = unsafe {
-        core::slice::from_raw_parts(dst as *const u8, USR_PROG_SIZE)
-    };
-
-    for (index, byte )in prog_slice.iter().enumerate() {
-        let endline = if index != 0 && (index % 4) == 0 { "\n"} else {" "};
-        kprint!("{:#x}{}", byte, endline);
-    }
     
     unsafe {
+        core::arch::asm!("fence.i", options(nostack, nomem, preserves_flags));
         core::arch::asm!(
             "jr {}",
             in(reg) USR_PROG_START

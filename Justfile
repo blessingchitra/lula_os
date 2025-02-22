@@ -46,5 +46,3 @@ gdb:
 	gdb -tui {{kernel_path}} \
 		-ex 'target remote localhost:1234' \
 		-ex 'layout src' \
-		-ex 'b usr_load_and_exec' \
-		-ex 'b kern_vm_init'
