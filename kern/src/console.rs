@@ -1,26 +1,27 @@
 use core::fmt::Write;
-use crate::sync::SpinLock;
+use crate::sync::{SpinLock, SpinLockGuard};
 use crate::uart;
 
 pub const CONS_BUFF_SIZE: usize = 1024;
 
-pub struct KConsole{
-    buffer: &'static SpinLock<uart::UartBuff>
+pub struct KConsole <'a> {
+    buffer: &'static SpinLock<uart::UartBuff>,
+    spinl_guard: SpinLockGuard<'a, uart::UartBuff>
 }
 
-impl KConsole {
+impl <'a> KConsole <'a> {
     pub fn new(buffer: &'static SpinLock<uart::UartBuff>) -> Self {
-        KConsole{ buffer }
+        let spinl_guard = buffer.lock();
+        KConsole{ buffer, spinl_guard}
     }
 }
 
 pub struct UConsole { }
 
-impl Write for KConsole {
+impl <'a> Write for KConsole<'a> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         if !s.is_empty() {
-            let mut spinl_guard = self.buffer.lock();
-            let buff = spinl_guard.get_mut();
+            let buff = self.spinl_guard.get_mut();
             buff.send(Some(s));
             return Ok(());
         }

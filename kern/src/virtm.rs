@@ -1,5 +1,4 @@
 use core::sync::atomic::{AtomicU64, Ordering};
-use crate::usr::{self, USR_PROG_START};
 use crate::uart;
 
 const PAGE_SIZE   : usize = 4096;

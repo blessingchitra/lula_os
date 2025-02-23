@@ -27,7 +27,7 @@ fn kern_prop(){
 
 }
 
-#[export_name = "kern_exec"]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kern_exec() -> ! {
     kern_prop();
     let cpu_first = riscv::RegTP::read() == 0;
@@ -44,9 +44,16 @@ pub unsafe extern "C" fn kern_exec() -> ! {
     }
 }
 
-#[allow(unused_variables)]
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> !{
+    let message =  info.message();
+    if let Some(message) = message.as_str() {
+        kprintln!("{}", message);
+    }
+    let loc = info.location();
+    if let Some(loc) = loc {
+        kprint!("file: {}, line: {}", loc.file(), loc.line())
+    }
     loop {
         1;
     }
