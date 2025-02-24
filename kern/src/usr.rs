@@ -6,13 +6,6 @@ use elf::ElfBytes;
 use elf::endian::LittleEndian;
 
 pub static USR_PROG_START: AtomicUsize = AtomicUsize::new(0);
-pub const USR_PROG_SIZE : usize = 12;
-
-pub static USR_PROG: [u8; 12] = [
-    0x13, 0x05, 0x20, 0x00,     // li a0, 2
-    0x73, 0x00, 0x00, 0x00,     // ecall
-    0x6f, 0x00, 0x00, 0x00      // j loop
-];
 
 #[unsafe(no_mangle)]
 pub fn usr_mem_setup() {
@@ -22,9 +15,10 @@ pub fn usr_mem_setup() {
                 USR_PROG_START.store(page as usize, Ordering::SeqCst);
                 let dst = USR_PROG_START.load(Ordering::SeqCst);
                 virtm::vm_map(dst, dst, 
-                        USR_PROG_SIZE, virtm::PTEPerms::READ | virtm::PTEPerms::EXEC | virtm::PTEPerms::WRITE, "Custom map\n");
-                let info = virtm::addr_dbg(dst, virtm::KERN_SATP as *mut u64);
-                kprint!("{:?}", info);
+                        BYTE_ARRAY.len(), 
+                        virtm::PTEPerms::READ | 
+                        virtm::PTEPerms::EXEC | 
+                        virtm::PTEPerms::WRITE, "usr prg 1");
             }
         }
     };
@@ -32,46 +26,31 @@ pub fn usr_mem_setup() {
 
 
 fn get_start_offset() -> Option<u64> {
-    let elf = ElfBytes::<LittleEndian>::minimal_parse(BYTE_ARRAY);
-    if let Ok( elf) = elf {
+    let elf = ElfBytes::<LittleEndian>::minimal_parse(BYTE_ARRAY)
+        .expect("Failed to parse ELF");
 
-        let shdr_strtab = elf.section_headers();
-        if let Some(shdr_strtab) = shdr_strtab{
-            let shdr_strtab = shdr_strtab.get(elf.ehdr.e_shstrndx as usize);
-            if let Ok(shdr_strtab) = shdr_strtab{
+    let shdr_strtab = elf.section_headers()
+        .expect("Failed to get section headers")
+        .get(elf.ehdr.e_shstrndx as usize)
+        .expect("Failed to get string table");
+    
+    let strtab = elf.section_data_as_strtab(&shdr_strtab)
+        .expect("Failed to get section string table");
 
-                if let Ok(strtab) = elf.section_data_as_strtab(&shdr_strtab){
+    let mut text_offset = None;
+    let mut _text_size  = None;
 
-                    let mut text_offset = None;
-                    let mut _text_size = None;
 
-                    if let Some(section_headers) = elf.section_headers(){
-                        for section in section_headers {
-
-                            if let Ok(name) = strtab.get(section.sh_name as usize){
-
-                                if name == ".text" {
-                                    text_offset = Some(section.sh_offset);
-                                    _text_size   = Some(section.sh_size);
-                                    return text_offset;
-                                }
-                            }
-                        }
-                    }
-
-                    #[allow(unused_variables)]
-                    match (text_offset, _text_size) {
-                        (Some(offset), Some(size)) => {
-                            let text_bytes = &BYTE_ARRAY[offset as usize..(offset + size) as usize];
-                        }
-                        _ => {},
-                    }
-                }
-            }
+    for section in elf.section_headers().expect("Failed to get sections") {
+        let name = strtab.get(section.sh_name as usize).unwrap_or("<unknown>");
+        
+        if name == ".text" {
+            text_offset = Some(section.sh_offset);
+            _text_size  = Some(section.sh_size);
         }
     }
 
-    None
+    text_offset
 }
 
 
@@ -80,7 +59,6 @@ fn get_start_offset() -> Option<u64> {
 pub fn usr_load_and_exec(){
     usr_mem_setup();
     let dst = USR_PROG_START.load(Ordering::SeqCst);
-    // let src = USR_PROG.as_ptr();
     let src = BYTE_ARRAY.as_ptr();
     if dst == 0 {
         kprintln!("Page Not Allocated for USR program. Addr: {:#x}", dst);
@@ -88,11 +66,6 @@ pub fn usr_load_and_exec(){
     }
 
     virtm::memcpy(dst as *mut u8, src, BYTE_ARRAY.len());
-    let bool_val = true;
-    let info = virtm::addr_dbg(dst, unsafe{virtm::KERN_SATP as *mut u64});
-    kprint!("{:?}\n", info);
-    kprint!("Done Copying {}\n", bool_val);
-    return;
 
     let offset = get_start_offset();
     if let Some(offset) = offset {
@@ -101,11 +74,10 @@ pub fn usr_load_and_exec(){
             core::arch::asm!("fence.i", options(nostack, nomem, preserves_flags));
             core::arch::asm!(
                 "jr {}",
-                in(reg) dst.add(start)
+                in(reg) start
             );
         };
     }
-    
 }
 
 

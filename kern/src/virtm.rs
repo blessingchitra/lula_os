@@ -172,8 +172,6 @@ static mut addr_entries: [(usize, usize, usize, usize); 6] = [(0, 0, 0, 0),(0, 0
 /// Uses RISCV SV39 Scheme
 #[unsafe(no_mangle)]
 pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64, region: &str) {
-    uart::uart_puts(region);
-
     let kern_end = get_end();
     if (phys_addr % PAGE_SIZE) != 0 || (vm_addr % PAGE_SIZE) != 0 {
         kprintln!("Cannot map address. Not Aligned.{:#x} {:#x} {}", phys_addr, kern_end, region);
@@ -219,8 +217,7 @@ pub fn vm_map(phys_addr: usize, vm_addr: usize, map_size: usize, perms: u64, reg
                                         continue;
                                     },
                                     None => {
-                                        uart::uart_puts(" Could not allocate page. region: ");
-                                        uart::uart_puts(region);
+                                        kprintln!(" Could not allocate page. region: ");
                                         return;
                                     }
                                 }
@@ -384,36 +381,33 @@ pub fn kern_vm_create_maps(){
 
 
     let mut kern_end = get_end();
-        // let mut alloc_start = mem_start + (num_bitmaps * core::mem::size_of::<AtomicU64>());
     kern_end = (kern_end + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
     let mem_size = KERN_RESERV - (kern_end - KERN_START);
 
     vm_map(kern_end, kern_end, mem_size, 
-            PTEPerms::READ | PTEPerms::WRITE | PTEPerms::EXEC, "Free Range\n");
+            PTEPerms::READ | PTEPerms::WRITE | PTEPerms::EXEC, "Free Range");
 
     vm_map(KERN_START, KERN_START, 
-            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC, "Kern Code\n");
+            kern_txt_end - KERN_START, PTEPerms::READ | PTEPerms::EXEC, "Kern Code");
 
     vm_map(VirtMemMap::VIRT_UART0, 
            VirtMemMap::VIRT_UART0, PAGE_SIZE,
-           PTEPerms::WRITE | PTEPerms::READ, "Uart\n");
+           PTEPerms::WRITE | PTEPerms::READ, "Uart");
     
     vm_map(VirtMemMap::VIRT_VIRTIO, 
             VirtMemMap::VIRT_VIRTIO, PAGE_SIZE, 
-            PTEPerms::WRITE | PTEPerms::READ, "Virt IO\n");
+            PTEPerms::WRITE | PTEPerms::READ, "Virt IO");
 
     
     vm_map(VirtMemMap::VIRT_PLIC, 
             VirtMemMap::VIRT_PLIC, 0x4000000, 
-            PTEPerms::WRITE | PTEPerms::READ, "PLIC\n");
+            PTEPerms::WRITE | PTEPerms::READ, "PLIC");
 
     // TODO: FIXME: This currently marks all the kernel data (`rodata`, `data`, `bss`) 
     //       with read and write perms.
     vm_map(kern_data_start, kern_data_start, kern_data_size, 
-            PTEPerms::READ | PTEPerms::WRITE, "Data Section\n");
+            PTEPerms::READ | PTEPerms::WRITE, "Data Section");
 
-    // let dbg_info = addr_dbg(KERN_START, table as *mut u64);
-    // kprintln!("kern dbg: {:?}", dbg_info);
  }
 
 

@@ -7,8 +7,8 @@ pub unsafe extern "C" fn _entry()
 {
     naked_asm!(
         "
-        la sp, stack0
-        li a0, 1024*4           # 4KB stack
+        la sp, stack
+        li a0, 1024*1024*4           # 4MB stack
         csrr a1, mhartid
         addi a1, a1, 1
         mul a0, a0, a1

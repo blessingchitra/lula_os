@@ -9,27 +9,15 @@ use crate::virtm;
 use crate::usr;
 
 const NCPU: u32         = 2;
-const CSTACKSIZE: usize = (NCPU * (1024 * 4)) as usize; // cpu stack size
-const PGSIZE:     usize = 4096;
-const PAGESHIFT:  usize = 12;
-const MAXVA:      usize = 1 << (9 + 9 + 9 + 12 - 1);
-
-const TRAPFRAME:  u64 = (MAXVA - PGSIZE) as u64;
+const CSTACKSIZE: usize = (NCPU * (1024 * 1024 * 4)) as usize; // cpu stack size
 
 #[allow(non_upper_case_globals)]
 #[no_mangle]
-static mut stack0: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
+static mut stack: [u8; CSTACKSIZE] = [0; CSTACKSIZE];
 
-#[unsafe(no_mangle)]
-fn kern_prop(){
-    let x = 5 + 3;
-    let _y = x +9;
-
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kern_exec() -> ! {
-    kern_prop();
     let cpu_first = riscv::RegTP::read() == 0;
     if cpu_first {
         let kern_end = virtm::get_data_end();
