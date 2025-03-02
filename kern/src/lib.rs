@@ -11,3 +11,4 @@ pub mod console;
 pub mod sync;
 pub mod virtm;
 pub mod usr;
+pub mod mem;
