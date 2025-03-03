@@ -1,6 +1,8 @@
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use super::Allocatable;
+
 const MAX_ORDER     : usize = 17;               // 128KB max block size
 const MIN_ORDER     : usize = 5;                // 32 bytes min block size
 const NUM_ORDERS    : usize = MAX_ORDER - MIN_ORDER + 1;
@@ -148,10 +150,6 @@ impl BuddyAllocator {
         (bitmap[byte_index] & (1 << bit_index)) != 0
     }
 
-    pub fn allocate(&mut self, size: usize) -> Option<NonNull<u8>> {
-        let order = self.size_to_order(size)?;
-        self.allocate_order(order)
-    }
 
     fn size_to_order(&self, size: usize) -> Option<usize> {
         let adjusted_size = size.max(MIN_BLOCK_SIZE);
@@ -203,11 +201,6 @@ impl BuddyAllocator {
         None
     }
 
-    pub fn deallocate(&mut self, ptr: NonNull<u8>, size: usize) {
-        if let Some(order) = self.size_to_order(size) {
-            self.deallocate_order(ptr, order);
-        }
-    }
 
     fn deallocate_order(&mut self, ptr: NonNull<u8>, order: usize) {
         if order < MIN_ORDER || order > MAX_ORDER {
@@ -278,3 +271,17 @@ impl BuddyAllocator {
         )
     }
 }
+
+
+impl Allocatable for BuddyAllocator {
+    fn allocate(&mut self, size: usize) -> Option<NonNull<u8>> {
+        let order = self.size_to_order(size)?;
+        self.allocate_order(order)
+    }
+    fn deallocate(&mut self, ptr: NonNull<u8>, size: usize) {
+        if let Some(order) = self.size_to_order(size) {
+            self.deallocate_order(ptr, order);
+        }
+    }
+}
+
