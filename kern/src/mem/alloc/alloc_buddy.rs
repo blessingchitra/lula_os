@@ -1,14 +1,7 @@
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use super::{Allocatable, AllocatableConfig, AllocatableErr};
 
-use super::Allocatable;
-
-const MAX_ORDER     : usize = 17;               // 128KB max block size
-const MIN_ORDER     : usize = 5;                // 32 bytes min block size
-const NUM_ORDERS    : usize = MAX_ORDER - MIN_ORDER + 1;
-const MIN_BLOCK_SIZE: usize = 1 << MIN_ORDER;
-const MAX_MEMORY    : usize = 1024 * 1024 * 4;  // 4MB maximum managed memory
-const BITMAP_SIZE   : usize = (MAX_MEMORY / MIN_BLOCK_SIZE + 7) / 8;
 
 #[repr(C)]
 struct FreeBlock {
@@ -18,9 +11,9 @@ struct FreeBlock {
 pub struct BuddyAllocator {
     base            : usize,
     size            : usize,
-    free_lists      : [Option<NonNull<FreeBlock>>; NUM_ORDERS],
-    split_bitmap    : [u8; BITMAP_SIZE],
-    allocated_bitmap: [u8; BITMAP_SIZE],
+    free_lists      : [Option<NonNull<FreeBlock>>; BuddyAllocator::NUM_ORDERS],
+    split_bitmap    : [u8; BuddyAllocator::BITMAP_SIZE],
+    allocated_bitmap: [u8; BuddyAllocator::BITMAP_SIZE],
     stats           : AllocatorStats,
 }
 
@@ -31,48 +24,29 @@ struct AllocatorStats {
 }
 
 impl BuddyAllocator {
-    pub unsafe fn new(start_addr: usize, size: usize) -> Option<Self> {
-        let aligned_start = (start_addr + MIN_BLOCK_SIZE - 1) & !(MIN_BLOCK_SIZE - 1);
-        let adjusted_size = size - (aligned_start - start_addr);
-        let usable_size   = adjusted_size & !(MIN_BLOCK_SIZE - 1);
-
-        if usable_size > MAX_MEMORY {
-            return None;
-        }
-
-        let mut allocator = BuddyAllocator {
-            base            : aligned_start,
-            size            : usable_size,
-            free_lists      : [None; NUM_ORDERS],
-            split_bitmap    : [0; BITMAP_SIZE],
-            allocated_bitmap: [0; BITMAP_SIZE],
-            stats: AllocatorStats {
-                allocated_bytes    : AtomicUsize::new(0),
-                total_allocations  : AtomicUsize::new(0),
-                total_deallocations: AtomicUsize::new(0),
-            },
-        };
-
-        allocator.init();
-        Some(allocator)
-    }
+    pub const MAX_ORDER     : usize = 17;               // 128KB max block size
+    pub const MIN_ORDER     : usize = 5;                // 32 bytes min block size
+    pub const NUM_ORDERS    : usize = BuddyAllocator::MAX_ORDER - BuddyAllocator::MIN_ORDER + 1;
+    pub const MIN_BLOCK_SIZE: usize = 1 << BuddyAllocator::MIN_ORDER;
+    pub const MAX_MEMORY    : usize = 1024 * 1024 * 100; // 100MB maximum managed memory
+    pub const BITMAP_SIZE   : usize = (BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE + 7) / 8;
 
     fn init(&mut self) {
         let mut remaining_size = self.size;
         let mut current_addr   = self.base;
 
-        for order in (MIN_ORDER..=MAX_ORDER).rev() {
+        for order in (BuddyAllocator::MIN_ORDER..=BuddyAllocator::MAX_ORDER).rev() {
             let block_size = 1 << order;
             
             while remaining_size >= block_size && current_addr % block_size == 0 {
-                let num_min_blocks = block_size / MIN_BLOCK_SIZE;
+                let num_min_blocks = block_size / BuddyAllocator::MIN_BLOCK_SIZE;
                 let start_index    = self.block_to_index(current_addr);
                 self.set_allocated_range(start_index, num_min_blocks, false);
                 
                 unsafe {
                     let block_ptr     = current_addr as *mut FreeBlock;
-                    (*block_ptr).next = self.free_lists[order - MIN_ORDER];
-                    self.free_lists[order - MIN_ORDER] = NonNull::new(block_ptr);
+                    (*block_ptr).next = self.free_lists[order - BuddyAllocator::MIN_ORDER];
+                    self.free_lists[order - BuddyAllocator::MIN_ORDER] = NonNull::new(block_ptr);
                 }
                 
                 remaining_size -= block_size;
@@ -82,13 +56,13 @@ impl BuddyAllocator {
     }
 
     fn block_to_index(&self, addr: usize) -> usize {
-        (addr - self.base) / MIN_BLOCK_SIZE
+        (addr - self.base) / BuddyAllocator::MIN_BLOCK_SIZE
     }
 
     fn set_allocated_range(&mut self, start_index: usize, num_blocks: usize, value: bool) {
         for index in start_index..start_index + num_blocks {
             // self.set_bit(&mut self.allocated_bitmap, index, value);
-            if index >= MAX_MEMORY / MIN_BLOCK_SIZE {
+            if index >= BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE {
                 return;
             }
             let byte_index = index / 8;
@@ -103,7 +77,7 @@ impl BuddyAllocator {
 
     fn set_split_bit(&mut self, index: usize, value: bool) {
         // self.set_bit(&mut self.split_bitmap, index, value);
-        if index >= MAX_MEMORY / MIN_BLOCK_SIZE {
+        if index >= BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE {
             return;
         }
         let byte_index = index / 8;
@@ -129,7 +103,7 @@ impl BuddyAllocator {
     }
 
     fn set_bit(&mut self, bitmap: &mut [u8], index: usize, value: bool) {
-        if index >= MAX_MEMORY / MIN_BLOCK_SIZE {
+        if index >= BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE {
             return;
         }
         let byte_index = index / 8;
@@ -142,7 +116,7 @@ impl BuddyAllocator {
     }
 
     fn get_bit(&self, bitmap: &[u8], index: usize) -> bool {
-        if index >= MAX_MEMORY / MIN_BLOCK_SIZE {
+        if index >= BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE {
             return false;
         }
         let byte_index = index / 8;
@@ -152,9 +126,9 @@ impl BuddyAllocator {
 
 
     fn size_to_order(&self, size: usize) -> Option<usize> {
-        let adjusted_size = size.max(MIN_BLOCK_SIZE);
+        let adjusted_size = size.max(BuddyAllocator::MIN_BLOCK_SIZE);
         let order         = adjusted_size.next_power_of_two().trailing_zeros() as usize;
-        if order >= MIN_ORDER && order <= MAX_ORDER {
+        if order >= BuddyAllocator::MIN_ORDER && order <= BuddyAllocator::MAX_ORDER {
             Some(order)
         } else {
             None
@@ -162,13 +136,13 @@ impl BuddyAllocator {
     }
 
     fn allocate_order(&mut self, order: usize) -> Option<NonNull<u8>> {
-        if order < MIN_ORDER || order > MAX_ORDER {
+        if order < BuddyAllocator::MIN_ORDER || order > BuddyAllocator::MAX_ORDER {
             return None;
         }
 
-        let index          = order - MIN_ORDER;
+        let index          = order - BuddyAllocator::MIN_ORDER;
         let block_size     = 1 << order;
-        let num_min_blocks = block_size / MIN_BLOCK_SIZE;
+        let num_min_blocks = block_size / BuddyAllocator::MIN_BLOCK_SIZE;
 
         if let Some(block)  = self.free_lists[index].take() {
             let block_addr  = block.as_ptr() as usize;
@@ -203,14 +177,14 @@ impl BuddyAllocator {
 
 
     fn deallocate_order(&mut self, ptr: NonNull<u8>, order: usize) {
-        if order < MIN_ORDER || order > MAX_ORDER {
+        if order < BuddyAllocator::MIN_ORDER || order > BuddyAllocator::MAX_ORDER {
             return;
         }
 
         let block_addr     = ptr.as_ptr() as usize;
-        let index          = order - MIN_ORDER;
+        let index          = order - BuddyAllocator::MIN_ORDER;
         let block_size     = 1 << order;
-        let num_min_blocks = block_size / MIN_BLOCK_SIZE;
+        let num_min_blocks = block_size / BuddyAllocator::MIN_BLOCK_SIZE;
         let start_index    = self.block_to_index(block_addr);
 
         self.set_allocated_range(start_index, num_min_blocks, false);
@@ -218,7 +192,7 @@ impl BuddyAllocator {
         self.stats.allocated_bytes.fetch_sub(block_size, Ordering::Relaxed);
         self.stats.total_deallocations.fetch_add(1, Ordering::Relaxed);
 
-        if order < MAX_ORDER {
+        if order < BuddyAllocator::MAX_ORDER {
             let parent_index = start_index / (2 * num_min_blocks);
             let buddy_addr = if (start_index / num_min_blocks) % 2 == 0 {
                 block_addr + block_size
@@ -274,10 +248,37 @@ impl BuddyAllocator {
 
 
 impl Allocatable for BuddyAllocator {
+    fn new(config: AllocatableConfig) -> Result<Self, AllocatableErr> {
+        let aligned_start = (config.start + BuddyAllocator::MIN_BLOCK_SIZE - 1) & !(BuddyAllocator::MIN_BLOCK_SIZE - 1);
+        let adjusted_size = config.size - (aligned_start - config.start);
+        let usable_size   = adjusted_size & !(BuddyAllocator::MIN_BLOCK_SIZE - 1);
+
+        if usable_size > BuddyAllocator::MAX_MEMORY {
+            return Err(AllocatableErr::NotEnoughMemory);
+        }
+
+        let mut allocator = BuddyAllocator {
+            base            : aligned_start,
+            size            : usable_size,
+            free_lists      : [None; BuddyAllocator::NUM_ORDERS],
+            split_bitmap    : [0; BuddyAllocator::BITMAP_SIZE],
+            allocated_bitmap: [0; BuddyAllocator::BITMAP_SIZE],
+            stats: AllocatorStats {
+                allocated_bytes    : AtomicUsize::new(0),
+                total_allocations  : AtomicUsize::new(0),
+                total_deallocations: AtomicUsize::new(0),
+            },
+        };
+
+        allocator.init();
+        Ok(allocator)
+    }
+
     fn allocate(&mut self, size: usize) -> Option<NonNull<u8>> {
         let order = self.size_to_order(size)?;
         self.allocate_order(order)
     }
+
     fn deallocate(&mut self, ptr: NonNull<u8>, size: usize) {
         if let Some(order) = self.size_to_order(size) {
             self.deallocate_order(ptr, order);

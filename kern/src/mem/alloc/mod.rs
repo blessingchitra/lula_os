@@ -1,61 +1,92 @@
 mod alloc_buddy;
 use core::{
     alloc::{GlobalAlloc, Layout}, 
-    ptr::NonNull,
+    ptr::{NonNull, null_mut},
     cell::UnsafeCell,
-    ptr::null_mut,
 };
 
 // use crate::sync::SpinLock;
 use alloc_buddy::BuddyAllocator;
 
+use crate::sync::{self, SpinLock};
+
+pub struct  AllocatableConfig {
+    start: usize,
+    size : usize,
+}
+
+
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum AllocatableErr{
+    NotEnoughMemory
+}
+
 /// Similar to `core::alloc::GlobalAlloc` except the
 /// `allocate` and `deallocate` take a mutable ref to self.
-pub trait  Allocatable{
+pub trait Allocatable{
+    fn new(config: AllocatableConfig) -> Result<Self, AllocatableErr> where Self: Sized;
     fn allocate(&mut self, size: usize) -> Option<NonNull<u8>>;
     fn deallocate(&mut self, ptr: NonNull<u8>, size: usize);
 }
 
-
 pub struct Allocator <T: Allocatable> {
-    allocator: UnsafeCell<T>,
+    allocator: Option<SpinLock<UnsafeCell<T>>>,
 }
 
-/// TODO: BADDD: Use lock to get the underlying `allocator`
-/// and better error & param checking. Here we just getting the ball rolling.
+impl <T: Allocatable> Allocator <T> {
+    pub fn get_allocator(&self) -> Option<&mut T> {
+        if let Some(lock) = &self.allocator {
+            let mut guard = lock.lock();
+            let data = unsafe {&mut *guard.get_mut().get()};
+            return Some(data);
+        }
+        None
+    }
+
+    pub fn set_allocator(&mut self, allocator: T){
+        let alloc = 
+                            sync::SpinLock::new(UnsafeCell::new(allocator));
+        self.allocator = Some(alloc);
+    }
+}
+
+/// TODO: Add better error & param checking.
 unsafe impl <T: Allocatable> GlobalAlloc for Allocator<T> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let allocator = &mut *self.allocator.get();
-        let size = layout.size();
-        if let Some(address) = allocator.allocate(size){
-            return address.as_ptr();
+        if let Some(allocator) = self.get_allocator(){
+            if let Some(address) = allocator.allocate(layout.size()){
+                return address.as_ptr();
+            }
         }
         null_mut()
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let allocator = &mut *self.allocator.get();
-        let ptr = NonNull::new_unchecked(ptr);
-        allocator.deallocate(ptr, layout.size());
+        if let Some(allocator) = self.get_allocator(){
+            let ptr = NonNull::new_unchecked(ptr);
+            allocator.deallocate(ptr, layout.size());
+        }
     }
 }
 
-const fn create_config<T: Allocatable>() -> Allocator<T> {
-    let base_size = 4096;
-    let conn_multiplier = 4;
-    
-    Allocator{
-        allocator: T::new(1000, 1024 * 1024 * 4).unwrap()
-    }
+fn create_allocator<T: Allocatable>() -> T {
+    let size: usize = 1024 * 1024 * 4;
+    let config = AllocatableConfig{start: 10000, size};
+
+    let allocator = T::new(config).expect("Could Not Initialise Memory Allocator");
+    allocator
 }
 
+static mut GLOB_ALLOCATOR: Allocator<BuddyAllocator> = Allocator{ allocator: None};
 
-static mut GLOB_ALLOCATOR: Allocator<BuddyAllocator> = 
-Allocator{
-    allocator: BuddyAllocator::new(1000, 1024 * 1024 * 4).unwrap()
-};
-
-
+/// Initialisation
+/// - This function gets run once by the CPU that initialised the
+///     kernel.
 pub fn allocator_init(){
+    unsafe {
+        let allocator = create_allocator::<BuddyAllocator>();
+        GLOB_ALLOCATOR.set_allocator(allocator);
+    }
     kprintln!("Memory Allocator initialsed");
 }
