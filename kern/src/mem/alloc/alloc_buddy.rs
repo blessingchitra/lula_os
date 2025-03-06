@@ -1,6 +1,9 @@
+use core::alloc::Layout;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use super::{Allocatable, AllocatableConfig, AllocatableErr};
+
+pub struct  PageTable;
 
 
 #[repr(C)]
@@ -28,7 +31,7 @@ impl BuddyAllocator {
     pub const MIN_ORDER     : usize = 5;                // 32 bytes min block size
     pub const NUM_ORDERS    : usize = BuddyAllocator::MAX_ORDER - BuddyAllocator::MIN_ORDER + 1;
     pub const MIN_BLOCK_SIZE: usize = 1 << BuddyAllocator::MIN_ORDER;
-    pub const MAX_MEMORY    : usize = 1024 * 1024 * 100; // 100MB maximum managed memory
+    pub const MAX_MEMORY    : usize = 1024 * 1024 * 150; // 150MB maximum managed memory
     pub const BITMAP_SIZE   : usize = (BuddyAllocator::MAX_MEMORY / BuddyAllocator::MIN_BLOCK_SIZE + 7) / 8;
 
     fn init(&mut self) {
@@ -247,14 +250,18 @@ impl BuddyAllocator {
 }
 
 
+
+
+
 impl Allocatable for BuddyAllocator {
     fn new(config: AllocatableConfig) -> Result<Self, AllocatableErr> {
         let aligned_start = (config.start + BuddyAllocator::MIN_BLOCK_SIZE - 1) & !(BuddyAllocator::MIN_BLOCK_SIZE - 1);
         let adjusted_size = config.size - (aligned_start - config.start);
         let usable_size   = adjusted_size & !(BuddyAllocator::MIN_BLOCK_SIZE - 1);
 
-        if usable_size > BuddyAllocator::MAX_MEMORY {
-            return Err(AllocatableErr::NotEnoughMemory);
+        let exceeds_allocator_limit = usable_size > BuddyAllocator::MAX_MEMORY;
+        if exceeds_allocator_limit {
+            return Err(AllocatableErr::ExceedsAllocatorMaxCap);
         }
 
         let mut allocator = BuddyAllocator {
@@ -274,13 +281,15 @@ impl Allocatable for BuddyAllocator {
         Ok(allocator)
     }
 
-    fn allocate(&mut self, size: usize) -> Option<NonNull<u8>> {
-        let order = self.size_to_order(size)?;
-        self.allocate_order(order)
+    fn allocate(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+        if let Some(order) = self.size_to_order(layout.size()){
+            return self.allocate_order(order);
+        }
+        None
     }
 
-    fn deallocate(&mut self, ptr: NonNull<u8>, size: usize) {
-        if let Some(order) = self.size_to_order(size) {
+    fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout) {
+        if let Some(order) = self.size_to_order(layout.size()) {
             self.deallocate_order(ptr, order);
         }
     }

@@ -42,14 +42,15 @@ pub extern "C" fn sys_init()
     if cpu_id == 0 { 
         uart::uart_init();
         plic::plic_init(0); 
-        virtm::kern_vm_init();
+        // virtm::kern_vm_init();
         unsafe {sys_initialised = true};
     }
 
     while (cpu_id != 0) && !unsafe { sys_initialised } { }
 
     unsafe {
-        RegSATP::set_root_page_sv39_(virtm::KERN_SATP);
+        // RegSATP::set_root_page_sv39_(virtm::KERN_SATP);
+        RegSATP::write(0);
         core::arch::asm!("mret")
     };
 }

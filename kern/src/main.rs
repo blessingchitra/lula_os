@@ -3,6 +3,9 @@
 #![feature(naked_functions)]
 #![feature(custom_test_frameworks)]
 
+extern crate alloc;
+use alloc::string::String;
+
 use kernel::*;
 use crate::riscv::Register; 
 use crate::virtm;
@@ -22,9 +25,11 @@ pub unsafe extern "C" fn kern_exec() -> ! {
     if cpu_first {
         let kern_end = virtm::get_data_end();
 
+        let heap_str = String::from("Heap Alloc String");
+
         kprintln!("System Initialised.");
         kprintln!("Kern End: {:#x}, VA Max: {:#x}", kern_end, virtm::MEM_MAX);
-        usr::usr_load_and_exec();
+        // usr::usr_load_and_exec();
     }
 
     loop {

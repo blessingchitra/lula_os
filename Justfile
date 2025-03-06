@@ -46,5 +46,5 @@ gdb:
 	gdb -tui {{kernel_path}} \
 		-ex 'target remote localhost:1234' \
 		-ex 'layout src' \
-		-ex 'b usr_mem_setup' \
-		-ex 'b usr_load_and_exec'
+		-ex 'b kern_exec' \
+		-ex 'b /media/blessing/Chitra/rust/lula_os/kern/src/mem/alloc/mod.rs:62'

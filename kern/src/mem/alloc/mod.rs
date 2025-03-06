@@ -15,19 +15,25 @@ pub struct  AllocatableConfig {
     size : usize,
 }
 
+const PAGE_SIZE   : usize = 4096;
+
+pub const KERN_START  : usize = 0x80000000;
+pub const KERN_RESERV : usize = 128 * (1024 * 1024);
+pub const MEM_MAX : usize = 1usize << (9 + 9 + 9 + 12 - 1);
 
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum AllocatableErr{
-    NotEnoughMemory
+    ExceedsAllocatableLimit,    // `Memory Request Error`. Memory size exceeds allocatable size
+    ExceedsAllocatorMaxCap      // `Initialisation Error`. The Allocator cannot managange heap of x size
 }
 
 /// Similar to `core::alloc::GlobalAlloc` except the
 /// `allocate` and `deallocate` take a mutable ref to self.
 pub trait Allocatable{
     fn new(config: AllocatableConfig) -> Result<Self, AllocatableErr> where Self: Sized;
-    fn allocate(&mut self, size: usize) -> Option<NonNull<u8>>;
-    fn deallocate(&mut self, ptr: NonNull<u8>, size: usize);
+    fn allocate(&mut self, layout: Layout) -> Option<NonNull<u8>>;
+    fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout);
 }
 
 pub struct Allocator <T: Allocatable> {
@@ -55,7 +61,7 @@ impl <T: Allocatable> Allocator <T> {
 unsafe impl <T: Allocatable> GlobalAlloc for Allocator<T> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if let Some(allocator) = self.get_allocator(){
-            if let Some(address) = allocator.allocate(layout.size()){
+            if let Some(address) = allocator.allocate(layout){
                 return address.as_ptr();
             }
         }
@@ -65,19 +71,32 @@ unsafe impl <T: Allocatable> GlobalAlloc for Allocator<T> {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if let Some(allocator) = self.get_allocator(){
             let ptr = NonNull::new_unchecked(ptr);
-            allocator.deallocate(ptr, layout.size());
+            allocator.deallocate(ptr, layout);
         }
     }
 }
 
+#[inline]
+fn get_end() -> usize {
+    let x: usize;
+    unsafe {
+        core::arch::asm!(
+            " la {}, end", out(reg) x,)};
+    x
+}
+
 fn create_allocator<T: Allocatable>() -> T {
-    let size: usize = 1024 * 1024 * 4;
-    let config = AllocatableConfig{start: 10000, size};
+
+    let mut kern_end = get_end();
+    kern_end = (kern_end + (PAGE_SIZE - 1)) & !(PAGE_SIZE - 1);
+    let mem_size = KERN_RESERV - (kern_end - KERN_START);
+    let config = AllocatableConfig{start: kern_end, size: mem_size};
 
     let allocator = T::new(config).expect("Could Not Initialise Memory Allocator");
     allocator
 }
 
+#[global_allocator]
 static mut GLOB_ALLOCATOR: Allocator<BuddyAllocator> = Allocator{ allocator: None};
 
 /// Initialisation
@@ -90,3 +109,6 @@ pub fn allocator_init(){
     }
     kprintln!("Memory Allocator initialsed");
 }
+
+
+
